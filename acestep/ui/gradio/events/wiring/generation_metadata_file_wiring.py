@@ -25,6 +25,7 @@ _LOAD_METADATA_GENERATION_OUTPUT_KEYS = (
     "cfg_interval_end",
     "shift",
     "infer_method",
+    "noise_schedule",
     "custom_timesteps",
     "audio_format",
     "lm_temperature",

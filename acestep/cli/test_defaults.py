@@ -63,7 +63,7 @@ class TestBuildAllDefaults(unittest.TestCase):
             "duration", "bpm", "keyscale", "timesignature", "vocal_language",
             "inference_steps", "seed", "guidance_scale", "use_adg",
             "cfg_interval_start", "cfg_interval_end", "shift", "infer_method",
-            "timesteps", "repainting_start", "repainting_end",
+            "noise_schedule", "timesteps", "repainting_start", "repainting_end",
             "audio_cover_strength", "thinking", "lm_temperature",
             "lm_cfg_scale", "lm_top_k", "lm_top_p", "lm_negative_prompt",
             "use_cot_metas", "use_cot_caption", "use_cot_lyrics",

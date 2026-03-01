@@ -35,6 +35,7 @@ class DiffusionMixin:
         encoder_attention_mask_non_cover=None,
         context_latents_non_cover=None,
         disable_tqdm: bool = False,
+        noise_schedule: str = "linear",
     ) -> Dict[str, Any]:
         """Run the MLX diffusion loop and return generated latents.
 
@@ -44,7 +45,7 @@ class DiffusionMixin:
             context_latents: Context/reference latent tensor.
             src_latents: Source latent tensor used for shape and initialization.
             seed: Random seed used by MLX diffusion.
-            infer_method: Diffusion method, one of ``"ode"`` or ``"sde"``.
+            infer_method: Diffusion method (``"ode"``, ``"sde"``, or ``"auraflow"``).
             shift: Timestep shift value.
             timesteps: Optional iterable or tensor-like custom timesteps.
             infer_steps: Number of diffusion steps (overrides fixed 8-step table).
@@ -57,6 +58,7 @@ class DiffusionMixin:
             encoder_attention_mask_non_cover: Unused; accepted for API compatibility.
             context_latents_non_cover: Optional non-cover context latent tensor.
             disable_tqdm: If True, suppress the diffusion progress bar.
+            noise_schedule: Schedule type (``"linear"`` or ``"cosine"``).
 
         Returns:
             Dict[str, Any]: ``{"target_latents": torch.Tensor, "time_costs": dict}``.
@@ -69,8 +71,11 @@ class DiffusionMixin:
             if not hasattr(self, required_attr):
                 raise AttributeError(f"DiffusionMixin host is missing required attribute '{required_attr}'")
 
-        if infer_method not in {"ode", "sde"}:
-            raise ValueError(f"Unsupported infer_method '{infer_method}'. Expected 'ode' or 'sde'.")
+        _valid = {"ode", "sde", "auraflow"}
+        if infer_method not in _valid:
+            raise ValueError(
+                f"Unsupported infer_method '{infer_method}'. Expected one of {sorted(_valid)}."
+            )
 
         if timesteps is not None and not (hasattr(timesteps, "__iter__") or hasattr(timesteps, "tolist")):
             raise TypeError("timesteps must be iterable, tensor-like, or None")
@@ -136,6 +141,7 @@ class DiffusionMixin:
             context_latents_non_cover_np=ctx_nc_np,
             compile_model=getattr(self, "mlx_dit_compiled", False),
             disable_tqdm=disable_tqdm,
+            noise_schedule=noise_schedule,
         )
 
         target_np = result["target_latents"]

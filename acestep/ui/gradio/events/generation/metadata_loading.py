@@ -101,6 +101,7 @@ def load_metadata(file_obj, llm_handler=None):
         complete_track_classes = metadata.get('complete_track_classes', [])
         shift = metadata.get('shift', 3.0)
         infer_method = metadata.get('infer_method', 'ode')
+        noise_schedule = metadata.get('noise_schedule', 'linear')
         custom_timesteps = metadata.get('timesteps', '')
         if custom_timesteps is None:
             custom_timesteps = ''
@@ -112,7 +113,7 @@ def load_metadata(file_obj, llm_handler=None):
             task_type, captions, lyrics, vocal_language, bpm, key_scale, time_signature,
             audio_duration, batch_size, inference_steps, guidance_scale, seed, random_seed,
             use_adg, cfg_interval_start, cfg_interval_end, shift, infer_method,
-            custom_timesteps,
+            noise_schedule, custom_timesteps,
             audio_format, lm_temperature, lm_cfg_scale, lm_top_k, lm_top_p, lm_negative_prompt,
             use_cot_metas, use_cot_caption, use_cot_language, audio_cover_strength,
             cover_noise_strength, think, audio_codes, repainting_start, repainting_end,
@@ -122,10 +123,10 @@ def load_metadata(file_obj, llm_handler=None):
 
     except json.JSONDecodeError as e:
         gr.Warning(t("messages.invalid_json", error=str(e)))
-        return [None] * 37 + [False]
+        return [None] * 38 + [False]
     except Exception as e:
         gr.Warning(t("messages.load_error", error=str(e)))
-        return [None] * 37 + [False]
+        return [None] * 38 + [False]
 
 
 def _get_project_root() -> str:

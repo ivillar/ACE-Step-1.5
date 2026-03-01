@@ -40,6 +40,8 @@ from transformers.models.qwen3.modeling_qwen3 import (
 from tqdm import tqdm
 from vector_quantize_pytorch import ResidualFSQ
 
+from acestep.core.generation.samplers.schedules import cosine_schedule
+
 
 # Local config import with fallback
 try:
@@ -1809,6 +1811,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         use_adg: bool = False,
         shift: float = 1.0,
         cover_noise_strength: float = 0.0,
+        noise_schedule: str = "linear",
         **kwargs,
     ):
         if attention_mask is None:
@@ -1858,41 +1861,35 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         time_costs["encoder_time_cost"] = end_time - start_time
         start_time = end_time
 
-        # Calculate cover steps based on audio_cover_strength
-        cover_steps = int(infer_steps * audio_cover_strength)
+        # Build timestep schedule
         device, dtype = context_latents.device, context_latents.dtype
-        t = torch.linspace(1.0, 0.0, infer_steps + 1, device=device, dtype=dtype)
-        # Apply shift transformation to timesteps if shift != 1.0
-        if shift != 1.0:
-            t = shift * t / (1 + (shift - 1) * t)
-        if use_progress_bar:
-            iterator = tqdm(zip(t[:-1], t[1:]), total=infer_steps)
+        if noise_schedule == "cosine":
+            t_list = cosine_schedule(infer_steps, shift=shift)
         else:
-            iterator = zip(t[:-1], t[1:])
+            t_list = [1.0 - i / infer_steps for i in range(infer_steps + 1)]
+            if shift != 1.0:
+                t_list = [
+                    shift * v / (1.0 + (shift - 1.0) * v) if v > 0 else 0.0
+                    for v in t_list
+                ]
+        t = torch.tensor(t_list, device=device, dtype=dtype)
+        cover_steps = int(infer_steps * audio_cover_strength)
 
         noise = self.prepare_noise(context_latents, seed)
         bsz, device, dtype = context_latents.shape[0], context_latents.device, context_latents.dtype
         past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
         momentum_buffer = MomentumBuffer()
-        
+
         # Cover noise initialization: blend noise with src_latents
         if cover_noise_strength > 0.0:
-            # cover_noise_strength=1 means closest to src, so noise_level should be low
             effective_noise_level = 1.0 - cover_noise_strength
-            # Find nearest timestep in the schedule t[:-1]
-            t_values = t[:-1].tolist()
+            t_values = t[:-1].tolist() if len(t) > 1 else t.tolist()
             nearest_t = min(t_values, key=lambda x: abs(x - effective_noise_level))
             start_idx = t_values.index(nearest_t)
-            # xt = nearest_t * noise + (1 - nearest_t) * src_latents
             xt = self.renoise(src_latents, nearest_t, noise)
-            # Truncate schedule to start from nearest_t
             t = t[start_idx:]
             infer_steps = len(t) - 1
             cover_steps = int(infer_steps * audio_cover_strength)
-            if use_progress_bar:
-                iterator = tqdm(zip(t[:-1], t[1:]), total=infer_steps)
-            else:
-                iterator = zip(t[:-1], t[1:])
             logger.info(
                 f"[generate_audio] Cover mode: cover_noise_strength={cover_noise_strength}, "
                 f"effective_noise_level={effective_noise_level:.4f}, nearest_t={nearest_t:.4f}, "
@@ -1900,32 +1897,50 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             )
         else:
             xt = noise
-        
+
+        num_steps = len(t) - 1
+        if use_progress_bar:
+            iterator = tqdm(range(num_steps), total=num_steps)
+        else:
+            iterator = range(num_steps)
+
         # main task condition
         do_cfg_guidance = diffusion_guidance_sale > 1.0
         if do_cfg_guidance:
-            encoder_hidden_states = torch.cat([encoder_hidden_states, self.null_condition_emb.expand_as(encoder_hidden_states)], dim=0)
+            encoder_hidden_states = torch.cat(
+                [encoder_hidden_states, self.null_condition_emb.expand_as(encoder_hidden_states)], dim=0,
+            )
             encoder_attention_mask = torch.cat([encoder_attention_mask, encoder_attention_mask], dim=0)
-            # src_latents
             context_latents = torch.cat([context_latents, context_latents], dim=0)
             attention_mask = torch.cat([attention_mask, attention_mask], dim=0)
-        
+
         _switched_to_non_cover = False
         with torch.no_grad():
-            for step_idx, (t_curr, t_prev) in enumerate(iterator):
+            for step_idx in iterator:
+                past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
+
+                t_curr = t[step_idx].item()
+                t_next = t[step_idx + 1].item()
+
                 if step_idx >= cover_steps and not _switched_to_non_cover:
                     _switched_to_non_cover = True
                     if do_cfg_guidance:
-                        encoder_hidden_states_non_cover = torch.cat([encoder_hidden_states_non_cover, self.null_condition_emb.expand_as(encoder_hidden_states_non_cover)], dim=0)
-                        encoder_attention_mask_non_cover = torch.cat([encoder_attention_mask_non_cover, encoder_attention_mask_non_cover], dim=0)
-                        # src_latents
-                        context_latents_non_cover = torch.cat([context_latents_non_cover, context_latents_non_cover], dim=0)
-
+                        encoder_hidden_states_non_cover = torch.cat(
+                            [encoder_hidden_states_non_cover,
+                             self.null_condition_emb.expand_as(encoder_hidden_states_non_cover)],
+                            dim=0,
+                        )
+                        encoder_attention_mask_non_cover = torch.cat(
+                            [encoder_attention_mask_non_cover, encoder_attention_mask_non_cover], dim=0,
+                        )
+                        context_latents_non_cover = torch.cat(
+                            [context_latents_non_cover, context_latents_non_cover], dim=0,
+                        )
                     encoder_hidden_states = encoder_hidden_states_non_cover
                     encoder_attention_mask = encoder_attention_mask_non_cover
                     context_latents = context_latents_non_cover
                     past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
-                
+
                 x = torch.cat([xt, xt], dim=0) if do_cfg_guidance else xt
                 t_curr_tensor = t_curr * torch.ones((x.shape[0],), device=device, dtype=dtype)
                 decoder_outputs = self.decoder(
@@ -1939,13 +1954,13 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     use_cache=True,
                     past_key_values=past_key_values,
                 )
-                
+
                 vt = decoder_outputs[0]
                 past_key_values = decoder_outputs[1]
-                apply_cfg_guidance = t_curr >= cfg_interval_start and t_curr <= cfg_interval_end
+                apply_cfg = cfg_interval_start <= t_curr <= cfg_interval_end
                 if do_cfg_guidance:
                     pred_cond, pred_null_cond = vt.chunk(2)
-                    if apply_cfg_guidance:
+                    if apply_cfg:
                         if not use_adg:
                             vt = apg_forward(
                                 pred_cond=pred_cond,
@@ -1964,20 +1979,19 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                             )
                     else:
                         vt = pred_cond
+
                 # Update x_t based on inference method
                 if infer_method == "sde":
-                    # Stochastic Differential Equation: predict clean, then re-add noise
                     t_curr_bsz = t_curr * torch.ones((bsz,), device=device, dtype=dtype)
                     pred_clean = self.get_x0_from_noise(xt, vt, t_curr_bsz)
-                    next_timestep = 1.0 - (float(step_idx + 1) / infer_steps)
-                    xt = self.renoise(pred_clean, next_timestep)
-                elif infer_method == "ode":
-                    # Ordinary Differential Equation: Euler method
-                    # dx/dt = -v, so x_{t+1} = x_t - v_t * dt
-                    dt = t_curr - t_prev
-                    dt_tensor = dt * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                    xt = self.renoise(pred_clean, t_next)
+                else:
+                    dt = t_curr - t_next
+                    dt_tensor = dt * torch.ones(
+                        (bsz,), device=device, dtype=dtype,
+                    ).unsqueeze(-1).unsqueeze(-1)
                     xt = xt - vt * dt_tensor
-        
+
         x_gen = xt
         end_time = time.time()
         time_costs["diffusion_time_cost"] = end_time - start_time

@@ -91,15 +91,26 @@ def run_lm_generation(
             continue
         break
 
+    regenerated = attempt > 0
+    if regenerated:
+        # Second run used current params (caption/lyrics); do not overwrite with
+        # first-run edited draft (e.g. instrumental caption + [Instrumental]).
+        edited_caption_out = None
+        edited_lyrics_out = None
+    else:
+        edited_caption_out = getattr(llm_handler, "_edited_caption", None)
+        edited_lyrics_out = getattr(llm_handler, "_edited_lyrics", None)
+
     return {
         "success": True,
         "lm_time_costs": lm_time_costs,
         "audio_codes": audio_codes,
         "lm_metadata": lm_metadata,
-        "edited_caption": getattr(llm_handler, "_edited_caption", None),
-        "edited_lyrics": getattr(llm_handler, "_edited_lyrics", None),
+        "edited_caption": edited_caption_out,
+        "edited_lyrics": edited_lyrics_out,
         "edited_instruction": getattr(llm_handler, "_edited_instruction", None),
         "edited_metas": getattr(llm_handler, "_edited_metas", {}),
+        "regenerated": regenerated,
     }
 
 
