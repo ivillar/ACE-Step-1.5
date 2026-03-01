@@ -18,12 +18,6 @@ From the `acestep/ui/streamlit` directory:
 pip install -r requirements.txt
 ```
 
-Or with uv (faster):
-
-```bash
-uv pip install -r requirements.txt
-```
-
 ## Step 2: Configure (Optional)
 
 Edit `config.py` to customize:

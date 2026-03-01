@@ -83,14 +83,14 @@ pip install --no-cache-dir [ROCm SDK wheels...]
 # 2. Install PyTorch for ROCm
 pip install --no-cache-dir [PyTorch ROCm wheel...]
 
-# 3. Install dependencies
-pip install -r requirements-rocm.txt
+# 3. Install ACE-Step (torch is already installed — pip won't override it)
+pip install -e .
 ```
 
 **Linux (ROCm 6.0+):**
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/rocm6.0
-pip install -r requirements-rocm-linux.txt
+pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/rocm6.4
+pip install -e .
 ```
 
 #### For NVIDIA GPUs:
@@ -189,7 +189,7 @@ set HSA_OVERRIDE_GFX_VERSION=10.3.0
 ## Additional Resources
 
 - **ROCm Linux Setup:** See `docs/en/ACE-Step1.5-Rocm-Manual-Linux.md`
-- **ROCm Windows Setup:** See `requirements-rocm.txt`
+- **ROCm Windows Setup:** See `requirements-rocm.txt` for SDK/PyTorch wheel URLs, then `pip install -e .`
 - **GPU Tiers:** See `docs/en/GPU_COMPATIBILITY.md`
 - **General Installation:** See `README.md`
 

@@ -9,7 +9,7 @@ A complete Streamlit UI for ACE-Step v1.5 music generation with these features:
 acestep/ui/streamlit/
 ├── main.py                 # Main Streamlit app (entry point)
 ├── config.py              # Configuration & constants
-├── requirements.txt       # Python dependencies
+├── requirements.txt       # Standalone Streamlit dependencies
 ├── README.md             # Full documentation
 ├── INSTALL.md            # Installation guide
 ├── run.sh / run.bat      # Quick start scripts

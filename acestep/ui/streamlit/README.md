@@ -17,11 +17,12 @@ A modern, user-friendly Streamlit interface for [ACE-Step v1.5](https://github.c
 
 1. Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip install -r acestep/ui/streamlit/requirements.txt
 ```
 
 2. Run the app:
 ```bash
+cd acestep/ui/streamlit
 streamlit run main.py
 ```
 
@@ -41,7 +42,7 @@ streamlit run main.py
 acestep/ui/streamlit/
 ├── main.py                    # Main Streamlit app
 ├── config.py                  # Configuration constants
-├── requirements.txt           # Python dependencies
+├── requirements.txt           # Standalone Streamlit dependencies
 ├── components/                # UI components
 │   ├── dashboard.py          # Home page with recent projects
 │   ├── generation_wizard.py   # Song creation wizard

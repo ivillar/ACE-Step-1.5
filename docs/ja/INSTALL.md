@@ -336,7 +336,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 # 2. ROCm 対応 PyTorch をインストール
-pip install torch --index-url https://download.pytorch.org/whl/rocm6.0
+pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/rocm6.4
 
 # 3. ACE-Step をインストール
 pip install -e .
