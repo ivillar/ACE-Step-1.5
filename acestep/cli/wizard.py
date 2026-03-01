@@ -46,13 +46,6 @@ def run_wizard(
         elif params_defaults and config_defaults:
             apply_optional_defaults(args, params_defaults, config_defaults)
 
-        if args.use_cot_lyrics and not args.thinking:
-            print(
-                "INFO: Automatic lyric generation requires the LM handler. "
-                "Enabling LM 'thinking'."
-            )
-            args.thinking = True
-
         _print_summary(args)
 
         if not configure_only:

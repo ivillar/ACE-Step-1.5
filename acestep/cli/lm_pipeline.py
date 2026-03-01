@@ -16,8 +16,13 @@ def run_lm_generation(
     dit_handler,
     params: GenerationParams,
     config: GenerationConfig,
+    originals: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Execute the LM generation loop (up to two attempts for metadata edits).
+
+    Args:
+        originals: Snapshot of param values captured before LM modification
+            (from ``snapshot_originals``).
 
     Returns:
         dict with keys: ``success``, ``lm_time_costs``, ``audio_codes``,
@@ -38,7 +43,6 @@ def run_lm_generation(
         actual_batch_size, seed_str, config.use_random_seed,
     )
 
-    originals = snapshot_originals(params)
     lm_time_costs = {"phase1_time": 0.0, "phase2_time": 0.0, "total_time": 0.0}
     lm_metadata: dict = {}
     audio_codes: Any = ""

@@ -15,7 +15,7 @@ from acestep.handler import AceStepHandler  # noqa: E402
 from acestep.inference import GenerationConfig, GenerationParams, generate_music  # noqa: E402
 from acestep.llm_inference import LLMHandler  # noqa: E402
 
-from acestep.cli.defaults import SKIP_LM_TASKS  # noqa: E402
+from acestep.cli.defaults import SKIP_LM_TASKS, build_all_defaults  # noqa: E402
 from acestep.cli.display import print_dit_prompt, print_final_parameters  # noqa: E402
 from acestep.cli.handler_init import (  # noqa: E402
     initialize_dit, initialize_lm, requires_lm, resolve_config_path,
@@ -200,13 +200,16 @@ def _build_initial_args(
 
 
 def _default_namespace_dict(
-    p, c, gpu_config, backend, batch_size, auto_offload, log_level,
+    params_defaults, config_defaults, gpu_config, backend, batch_size,
+    auto_offload, log_level,
 ):
     """Return the full defaults dict for argparse.Namespace construction."""
-    return {
-        "project_root": _get_project_root(),
+    project_root = _get_project_root()
+    defaults = build_all_defaults(params_defaults, config_defaults)
+    defaults.update({
+        "project_root": project_root,
         "config_path": None,
-        "checkpoint_dir": os.path.join(_get_project_root(), "checkpoints"),
+        "checkpoint_dir": os.path.join(project_root, "checkpoints"),
         "lm_model_path": None,
         "backend": backend,
         "device": "auto",
@@ -214,37 +217,23 @@ def _default_namespace_dict(
         "offload_to_cpu": auto_offload,
         "offload_dit_to_cpu": False,
         "save_dir": "output",
-        "audio_format": c.audio_format,
-        "caption": "", "prompt": "", "lyrics": None,
-        "duration": p.duration, "instrumental": False,
-        "bpm": p.bpm, "keyscale": p.keyscale,
-        "timesignature": p.timesignature, "vocal_language": p.vocal_language,
-        "task_type": p.task_type, "instruction": p.instruction,
-        "reference_audio": p.reference_audio, "src_audio": p.src_audio,
-        "repainting_start": p.repainting_start, "repainting_end": p.repainting_end,
-        "audio_cover_strength": p.audio_cover_strength,
-        "lego_track": "", "extract_track": "", "complete_tracks": "",
-        "sample_mode": False, "sample_query": "", "use_format": False,
-        "inference_steps": p.inference_steps, "seed": p.seed,
-        "guidance_scale": p.guidance_scale, "use_adg": p.use_adg,
-        "shift": 3.0, "infer_method": p.infer_method, "timesteps": None,
-        "thinking": gpu_config.init_lm_default,
-        "lm_temperature": p.lm_temperature, "lm_cfg_scale": p.lm_cfg_scale,
-        "lm_top_k": p.lm_top_k, "lm_top_p": p.lm_top_p,
-        "use_cot_metas": p.use_cot_metas, "use_cot_caption": p.use_cot_caption,
-        "use_cot_lyrics": p.use_cot_lyrics, "use_cot_language": p.use_cot_language,
-        "use_constrained_decoding": p.use_constrained_decoding,
-        "batch_size": batch_size, "seeds": None,
-        "use_random_seed": c.use_random_seed,
-        "allow_lm_batch": c.allow_lm_batch,
-        "lm_batch_chunk_size": c.lm_batch_chunk_size,
-        "constrained_decoding_debug": c.constrained_decoding_debug,
+        "caption": "",
+        "prompt": "",
+        "lyrics": None,
+        "instrumental": False,
+        "task_type": params_defaults.task_type,
+        "instruction": params_defaults.instruction,
+        "reference_audio": params_defaults.reference_audio,
+        "src_audio": params_defaults.src_audio,
+        "lego_track": "",
+        "extract_track": "",
+        "complete_tracks": "",
         "audio_codes": "",
-        "cfg_interval_start": p.cfg_interval_start,
-        "cfg_interval_end": p.cfg_interval_end,
-        "lm_negative_prompt": p.lm_negative_prompt,
+        "thinking": gpu_config.init_lm_default,
+        "batch_size": batch_size,
         "log_level": log_level,
-    }
+    })
+    return defaults
 
 
 def _setup_prompt_edit_hook(args, llm_handler) -> None:
@@ -270,34 +259,10 @@ def _setup_prompt_edit_hook(args, llm_handler) -> None:
 
 
 def _build_generation_objects(args, timesteps):
-    params = GenerationParams(
-        task_type=args.task_type, instruction=args.instruction,
-        reference_audio=args.reference_audio, src_audio=args.src_audio,
-        audio_codes=args.audio_codes, caption=args.caption, lyrics=args.lyrics,
-        instrumental=args.instrumental, vocal_language=args.vocal_language,
-        bpm=args.bpm, keyscale=args.keyscale, timesignature=args.timesignature,
-        duration=args.duration, inference_steps=args.inference_steps,
-        seed=args.seed, guidance_scale=args.guidance_scale, use_adg=args.use_adg,
-        cfg_interval_start=args.cfg_interval_start,
-        cfg_interval_end=args.cfg_interval_end,
-        shift=args.shift, infer_method=args.infer_method, timesteps=timesteps,
-        repainting_start=args.repainting_start,
-        repainting_end=args.repainting_end,
-        audio_cover_strength=args.audio_cover_strength,
-        thinking=args.thinking, lm_temperature=args.lm_temperature,
-        lm_cfg_scale=args.lm_cfg_scale, lm_top_k=args.lm_top_k,
-        lm_top_p=args.lm_top_p, lm_negative_prompt=args.lm_negative_prompt,
-        use_cot_metas=args.use_cot_metas, use_cot_caption=args.use_cot_caption,
-        use_cot_lyrics=args.use_cot_lyrics, use_cot_language=args.use_cot_language,
-        use_constrained_decoding=args.use_constrained_decoding,
-    )
-    config = GenerationConfig(
-        batch_size=args.batch_size, allow_lm_batch=args.allow_lm_batch,
-        use_random_seed=args.use_random_seed, seeds=args.seeds,
-        lm_batch_chunk_size=args.lm_batch_chunk_size,
-        constrained_decoding_debug=args.constrained_decoding_debug,
-        audio_format=args.audio_format,
-    )
+    params = GenerationParams.from_namespace(args)
+    if timesteps is not None:
+        params.timesteps = timesteps
+    config = GenerationConfig.from_namespace(args)
     return params, config
 
 
@@ -320,7 +285,7 @@ def _run_generation(
     lm_time_costs = None
     if manual_edit:
         originals = snapshot_originals(params)
-        lm_result = run_lm_generation(llm_handler, dit_handler, params, config)
+        lm_result = run_lm_generation(llm_handler, dit_handler, params, config, originals)
         lm_time_costs = lm_result.get("lm_time_costs")
         if not lm_result.get("success", False):
             return
