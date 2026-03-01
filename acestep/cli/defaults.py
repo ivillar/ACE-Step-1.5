@@ -1,6 +1,6 @@
 """Constants, task-instruction helpers, and default-value application for the CLI."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from acestep.constants import DEFAULT_DIT_INSTRUCTION, TASK_INSTRUCTIONS
 from acestep.inference import GenerationConfig, GenerationParams
@@ -42,52 +42,63 @@ def default_instruction_for_task(
     return DEFAULT_DIT_INSTRUCTION
 
 
+def build_all_defaults(
+    params: GenerationParams,
+    config: GenerationConfig,
+) -> Dict[str, Any]:
+    """Canonical mapping of all CLI-settable generation fields to their defaults.
+
+    This is the single source of truth used by both the initial namespace
+    construction in ``cli.py`` and by ``apply_optional_defaults``.
+    """
+    return {
+        "duration": params.duration,
+        "bpm": params.bpm,
+        "keyscale": params.keyscale,
+        "timesignature": params.timesignature,
+        "vocal_language": params.vocal_language,
+        "inference_steps": params.inference_steps,
+        "seed": params.seed,
+        "guidance_scale": params.guidance_scale,
+        "use_adg": params.use_adg,
+        "cfg_interval_start": params.cfg_interval_start,
+        "cfg_interval_end": params.cfg_interval_end,
+        "shift": 3.0,
+        "infer_method": params.infer_method,
+        "timesteps": None,
+        "repainting_start": params.repainting_start,
+        "repainting_end": params.repainting_end,
+        "audio_cover_strength": params.audio_cover_strength,
+        "thinking": params.thinking,
+        "lm_temperature": params.lm_temperature,
+        "lm_cfg_scale": params.lm_cfg_scale,
+        "lm_top_k": params.lm_top_k,
+        "lm_top_p": params.lm_top_p,
+        "lm_negative_prompt": params.lm_negative_prompt,
+        "use_cot_metas": params.use_cot_metas,
+        "use_cot_caption": params.use_cot_caption,
+        "use_cot_lyrics": params.use_cot_lyrics,
+        "use_cot_language": params.use_cot_language,
+        "use_constrained_decoding": params.use_constrained_decoding,
+        "batch_size": config.batch_size,
+        "allow_lm_batch": config.allow_lm_batch,
+        "use_random_seed": config.use_random_seed,
+        "seeds": config.seeds,
+        "lm_batch_chunk_size": config.lm_batch_chunk_size,
+        "constrained_decoding_debug": config.constrained_decoding_debug,
+        "audio_format": config.audio_format,
+        "sample_mode": False,
+        "sample_query": "",
+        "use_format": False,
+    }
+
+
 def apply_optional_defaults(
     args,
     params_defaults: GenerationParams,
     config_defaults: GenerationConfig,
 ) -> None:
     """Fill missing attributes on *args* from the dataclass defaults."""
-    optional_defaults = {
-        "duration": params_defaults.duration,
-        "bpm": params_defaults.bpm,
-        "keyscale": params_defaults.keyscale,
-        "timesignature": params_defaults.timesignature,
-        "vocal_language": params_defaults.vocal_language,
-        "inference_steps": params_defaults.inference_steps,
-        "seed": params_defaults.seed,
-        "guidance_scale": params_defaults.guidance_scale,
-        "use_adg": params_defaults.use_adg,
-        "cfg_interval_start": params_defaults.cfg_interval_start,
-        "cfg_interval_end": params_defaults.cfg_interval_end,
-        "shift": 3.0,
-        "infer_method": params_defaults.infer_method,
-        "timesteps": None,
-        "repainting_start": params_defaults.repainting_start,
-        "repainting_end": params_defaults.repainting_end,
-        "audio_cover_strength": params_defaults.audio_cover_strength,
-        "thinking": params_defaults.thinking,
-        "lm_temperature": params_defaults.lm_temperature,
-        "lm_cfg_scale": params_defaults.lm_cfg_scale,
-        "lm_top_k": params_defaults.lm_top_k,
-        "lm_top_p": params_defaults.lm_top_p,
-        "lm_negative_prompt": params_defaults.lm_negative_prompt,
-        "use_cot_metas": params_defaults.use_cot_metas,
-        "use_cot_caption": params_defaults.use_cot_caption,
-        "use_cot_lyrics": params_defaults.use_cot_lyrics,
-        "use_cot_language": params_defaults.use_cot_language,
-        "use_constrained_decoding": params_defaults.use_constrained_decoding,
-        "batch_size": config_defaults.batch_size,
-        "allow_lm_batch": config_defaults.allow_lm_batch,
-        "use_random_seed": config_defaults.use_random_seed,
-        "seeds": config_defaults.seeds,
-        "lm_batch_chunk_size": config_defaults.lm_batch_chunk_size,
-        "constrained_decoding_debug": config_defaults.constrained_decoding_debug,
-        "audio_format": config_defaults.audio_format,
-        "sample_mode": False,
-        "sample_query": "",
-        "use_format": False,
-    }
-    for key, default_value in optional_defaults.items():
+    for key, default_value in build_all_defaults(params_defaults, config_defaults).items():
         if getattr(args, key, None) is None:
             setattr(args, key, default_value)

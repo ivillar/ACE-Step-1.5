@@ -10,7 +10,7 @@ import math
 import os
 import tempfile
 from typing import Optional, Union, List, Dict, Any, Tuple
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 from loguru import logger
 import torch
 
@@ -169,6 +169,17 @@ class GenerationParams:
         """Convert config to dictionary for JSON serialization."""
         return asdict(self)
 
+    @classmethod
+    def from_namespace(cls, ns) -> "GenerationParams":
+        """Construct from an argparse.Namespace (or any object with matching attrs).
+
+        Unknown attributes on *ns* are silently ignored; missing attributes
+        fall back to the dataclass defaults.
+        """
+        known = {f.name for f in fields(cls)}
+        kwargs = {k: v for k, v in vars(ns).items() if k in known}
+        return cls(**kwargs)
+
 
 @dataclass
 class GenerationConfig:
@@ -197,6 +208,17 @@ class GenerationConfig:
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary for JSON serialization."""
         return asdict(self)
+
+    @classmethod
+    def from_namespace(cls, ns) -> "GenerationConfig":
+        """Construct from an argparse.Namespace (or any object with matching attrs).
+
+        Unknown attributes on *ns* are silently ignored; missing attributes
+        fall back to the dataclass defaults.
+        """
+        known = {f.name for f in fields(cls)}
+        kwargs = {k: v for k, v in vars(ns).items() if k in known}
+        return cls(**kwargs)
 
 
 @dataclass

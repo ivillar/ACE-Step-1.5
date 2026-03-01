@@ -6,7 +6,7 @@ from typing import List, Optional
 from acestep.constants import DEFAULT_DIT_INSTRUCTION, TASK_INSTRUCTIONS
 from acestep.inference import GenerationParams
 
-from acestep.cli.defaults import BASE_ONLY_TASKS, default_instruction_for_task
+from acestep.cli.defaults import default_instruction_for_task
 from acestep.cli.parsing import parse_timesteps_input
 from acestep.cli.prompt_helpers import expand_audio_path
 
@@ -128,13 +128,6 @@ def _validate_task_requirements(args, parser) -> None:
     ):
         if args.task_type in {"text2music", "cover", "repaint"}:
             args.instruction = TASK_INSTRUCTIONS[args.task_type]
-
-    if args.task_type in BASE_ONLY_TASKS and args.config_path:
-        if "base" not in str(args.config_path).lower():
-            parser.error(
-                f"task_type '{args.task_type}' requires a base model config "
-                "(e.g., 'acestep-v15-base')."
-            )
 
     if args.task_type == "repaint":
         if args.repainting_end != -1 and args.repainting_end <= args.repainting_start:

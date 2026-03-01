@@ -262,9 +262,3 @@ def _collect_lyrics(args) -> None:
             args.caption = prompt_non_empty(
                 "Enter a music description for lyric generation: "
             )
-        if not args.thinking:
-            print(
-                "INFO: Automatic lyric generation requires the LM handler. "
-                "Enabling LM 'thinking'."
-            )
-            args.thinking = True

@@ -94,22 +94,17 @@ def prompt_choice_from_list(
         print("Please choose a valid option.")
 
 
-def prompt_int(
-    prompt: str,
-    default: Optional[int] = None,
-    min_value: Optional[int] = None,
-    max_value: Optional[int] = None,
-) -> Optional[int]:
-    """Prompt for an integer within optional bounds."""
+def _prompt_numeric(prompt, default, min_value, max_value, cast_fn, type_name):
+    """Prompt for a numeric value, casting with *cast_fn* and validating bounds."""
     default_display = "auto" if default is None else default
     while True:
         value = input(f"{prompt} [{default_display}]: ").strip()
         if not value:
             return default
         try:
-            parsed = int(value)
+            parsed = cast_fn(value)
         except ValueError:
-            print("Invalid input. Please enter an integer.")
+            print(f"Invalid input. Please enter {type_name}.")
             continue
         if min_value is not None and parsed < min_value:
             print(f"Please enter a value >= {min_value}.")
@@ -118,6 +113,16 @@ def prompt_int(
             print(f"Please enter a value <= {max_value}.")
             continue
         return parsed
+
+
+def prompt_int(
+    prompt: str,
+    default: Optional[int] = None,
+    min_value: Optional[int] = None,
+    max_value: Optional[int] = None,
+) -> Optional[int]:
+    """Prompt for an integer within optional bounds."""
+    return _prompt_numeric(prompt, default, min_value, max_value, int, "an integer")
 
 
 def prompt_float(
@@ -127,23 +132,7 @@ def prompt_float(
     max_value: Optional[float] = None,
 ) -> Optional[float]:
     """Prompt for a float within optional bounds."""
-    default_display = "auto" if default is None else default
-    while True:
-        value = input(f"{prompt} [{default_display}]: ").strip()
-        if not value:
-            return default
-        try:
-            parsed = float(value)
-        except ValueError:
-            print("Invalid input. Please enter a number.")
-            continue
-        if min_value is not None and parsed < min_value:
-            print(f"Please enter a value >= {min_value}.")
-            continue
-        if max_value is not None and parsed > max_value:
-            print(f"Please enter a value <= {max_value}.")
-            continue
-        return parsed
+    return _prompt_numeric(prompt, default, min_value, max_value, float, "a number")
 
 
 def prompt_existing_file(prompt: str, default: Optional[str] = None) -> str:
