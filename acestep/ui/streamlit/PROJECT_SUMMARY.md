@@ -12,7 +12,7 @@ acestep/ui/streamlit/
 ### Core Files (5)
 - **main.py** - Main Streamlit app with routing and navigation
 - **config.py** - Centralized configuration for all settings
-- **requirements.txt** - Python dependencies (Streamlit, librosa, plotly, etc.)
+- **requirements.txt** - Standalone Streamlit dependencies
 - **.streamlit/config.toml** - Streamlit theme and layout configuration
 - **run.sh / run.bat** - Quick-start scripts (macOS/Linux/Windows)
 

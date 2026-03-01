@@ -522,7 +522,7 @@ The ROCm script uses a separate virtual environment (`venv_rocm`) instead of the
 set VENV_DIR=%~dp0venv_rocm
 ```
 
-> **Note**: The ROCm script requires a separate Python environment with ROCm-compatible PyTorch installed. See `requirements-rocm.txt` for setup instructions.
+> **Note**: The ROCm script requires a separate Python environment with ROCm-compatible PyTorch installed. See `requirements-rocm.txt` for ROCm SDK/PyTorch wheel URLs, then run `pip install -e .` to install the remaining dependencies.
 
 ---
 

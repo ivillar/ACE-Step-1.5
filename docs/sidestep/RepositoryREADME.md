@@ -330,7 +330,7 @@ Side-Step is optimized for both heavy Cloud GPUs (H100/A100) and local "underpow
 Side-Step/                       <-- Standalone project root
 ├── train.py                     <-- Your main entry point
 ├── pyproject.toml               <-- Dependencies (uv sync installs everything)
-├── requirements-sidestep.txt    <-- Fallback for plain pip
+├── requirements-sidestep.txt    <-- Stub pointing to pyproject.toml [sidestep] extra
 ├── install_windows.bat          <-- Windows easy installer (double-click)
 ├── install_windows.ps1          <-- PowerShell installer script
 └── acestep/

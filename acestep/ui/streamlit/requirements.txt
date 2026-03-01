@@ -1,3 +1,8 @@
+# ACE Studio Streamlit UI — standalone dependencies.
+# This file is kept separate because several packages (e.g. streamlit-audio-recorder)
+# are not available on PyPI and cannot be expressed as a pyproject.toml extra.
+#
+# Install:  pip install -r acestep/ui/streamlit/requirements.txt
 streamlit==1.40.2
 streamlit-player==0.1.5
 streamlit-audio-recorder==0.0.8

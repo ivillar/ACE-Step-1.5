@@ -372,19 +372,24 @@ python --version  # Should show Python 3.12.x
 python -m venv venv_rocm
 venv_rocm\Scripts\activate
 
-# 3. Follow the installation steps in requirements-rocm.txt
-# This installs ROCm SDK and PyTorch wheels from AMD's repository
+# 3. Install ROCm SDK components (see requirements-rocm.txt for full URLs)
+pip install --no-cache-dir <ROCm SDK wheels...>
 
-# 4. Install dependencies
-pip install -r requirements-rocm.txt
+# 4. Install PyTorch for ROCm (see requirements-rocm.txt for full URLs)
+pip install --no-cache-dir <PyTorch ROCm wheels...>
 
-# 5. Launch with the ROCm-specific launcher
+# 5. Install ACE-Step (torch is already installed — pip won't override it)
+pip install -e .
+
+# 6. Launch with the ROCm-specific launcher
 start_gradio_ui_rocm.bat
 # OR
 start_api_server_rocm.bat
 ```
 
-See [`requirements-rocm.txt`](../../requirements-rocm.txt) for detailed ROCm 7.2 installation steps.
+See [`requirements-rocm.txt`](../../requirements-rocm.txt) for detailed ROCm 7.2 SDK and PyTorch wheel URLs.
+
+> **Note:** `torchao` may not work on ROCm Windows (it imports `torch.distributed` which is unavailable). Uninstall it if it causes errors: `pip uninstall torchao`
 
 ### Linux - ROCm 6.0+ (Python 3.11 or 3.12)
 
@@ -394,16 +399,16 @@ python -m venv .venv
 source .venv/bin/activate
 
 # 2. Install ROCm-compatible PyTorch
-pip install torch --index-url https://download.pytorch.org/whl/rocm6.0
+pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/rocm6.4
 
-# 3. Install ACE-Step
+# 3. Install ACE-Step (torch is already installed — pip won't override it)
 pip install -e .
 
 # 4. Start the service
 python -m acestep.acestep_v15_pipeline --port 7680
 ```
 
-> **Note:** `torchcodec` is not available for AMD ROCm GPUs due to CUDA-specific dependencies. ACE-Step automatically uses `soundfile` as a fallback for audio I/O, which provides full functionality on ROCm platforms.
+> **Note:** `torchcodec` is not available for AMD ROCm GPUs. ACE-Step automatically uses `soundfile` as a fallback for audio I/O, which provides full functionality on ROCm platforms.
 
 ### GPU Detection Troubleshooting
 

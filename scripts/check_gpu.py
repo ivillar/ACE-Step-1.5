@@ -52,7 +52,7 @@ def check_pytorch():
             print("  For NVIDIA GPUs:")
             print(f"    pip install torch --index-url {PYTORCH_CUDA_INSTALL_URL}")
             print("\n  For AMD GPUs with ROCm:")
-            print("    Windows: See requirements-rocm.txt")
+            print("    Windows: See requirements-rocm.txt for ROCm SDK/PyTorch URLs, then: pip install -e .")
             print(f"    Linux: pip install torch --index-url {PYTORCH_ROCM_INSTALL_URL}")
             return False
         
@@ -252,7 +252,7 @@ def print_recommendations():
             print("  pip uninstall torch torchvision torchaudio")
             print(f"  pip install torch torchvision torchaudio --index-url {PYTORCH_CUDA_INSTALL_URL}")
             print("\nFor AMD GPUs:")
-            print("  Windows: Follow instructions in requirements-rocm.txt")
+            print("  Windows: See requirements-rocm.txt for ROCm SDK/PyTorch URLs, then: pip install -e .")
             print(f"  Linux: pip install torch --index-url {PYTORCH_ROCM_INSTALL_URL}")
             
     except ImportError:

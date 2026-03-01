@@ -482,7 +482,7 @@ def _log_gpu_diagnostic_info(torch_module):
         logger.warning("  3. Set HSA_OVERRIDE_GFX_VERSION for your GPU (see above)")
         logger.warning("  4. On Windows: Use start_gradio_ui_rocm.bat which sets required env vars")
         logger.warning("  5. See docs/en/ACE-Step1.5-Rocm-Manual-Linux.md for Linux setup")
-        logger.warning("  6. See requirements-rocm.txt for Windows ROCm setup instructions")
+        logger.warning("  6. See requirements-rocm.txt for Windows ROCm SDK/PyTorch URLs, then: pip install -e .")
         
     elif is_cuda_build:
         logger.warning("✓ PyTorch CUDA build detected")
@@ -511,7 +511,7 @@ def _log_gpu_diagnostic_info(torch_module):
         logger.warning(f"  pip install torch --index-url {PYTORCH_CUDA_INSTALL_URL}")
         logger.warning("")
         logger.warning("For AMD GPUs with ROCm:")
-        logger.warning("  Windows: See requirements-rocm.txt for detailed instructions")
+        logger.warning("  Windows: See requirements-rocm.txt for ROCm SDK/PyTorch URLs, then: pip install -e .")
         logger.warning(f"  Linux: pip install torch --index-url {PYTORCH_ROCM_INSTALL_URL}")
         logger.warning("")
         logger.warning("For more information, see README.md section 'AMD / ROCm GPUs'")

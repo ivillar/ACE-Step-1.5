@@ -23,8 +23,8 @@ source .venv/bin/activate
 #install pytorch requirements
 pip install torch torchaudio torchvision xformers --index-url https://download.pytorch.org/whl/rocm6.4
 
-#install requirements without uv
-pip install -r requirements-rocm-linux.txt
+#install ACE-Step (torch is already installed — pip won't override it)
+pip install -e .
 
 #start the program 
 #"--servername 0.0.0.0" is for making this on all networks card available
