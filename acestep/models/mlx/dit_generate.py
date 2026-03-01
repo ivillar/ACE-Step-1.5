@@ -10,6 +10,8 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from tqdm import tqdm
 
+from acestep.core.generation.samplers.schedules import cosine_schedule
+
 logger = logging.getLogger(__name__)
 
 # Pre-defined timestep schedules (from modeling_acestep_v15_turbo.py)
@@ -135,6 +137,7 @@ def mlx_generate_diffusion(
     context_latents_non_cover_np: Optional[np.ndarray] = None,
     compile_model: bool = False,
     disable_tqdm: bool = False,
+    noise_schedule: str = "linear",
 ) -> Dict[str, object]:
     """Run the complete MLX diffusion loop with optional CFG guidance.
 
@@ -148,7 +151,7 @@ def mlx_generate_diffusion(
         context_latents_np: [B, T, C] from prepare_condition (numpy).
         src_latents_shape: shape tuple [B, T, 64] for noise generation.
         seed: random seed (int, list[int], or None).
-        infer_method: "ode" or "sde".
+        infer_method: "ode", "sde", or "auraflow".
         shift: timestep shift factor.
         timesteps: optional custom timestep list.
         infer_steps: number of diffusion steps.
@@ -212,7 +215,17 @@ def mlx_generate_diffusion(
         noise = mx.random.normal((bsz, T, C), key=key)
 
     # ---- Timestep schedule ----
-    t_schedule_list = get_timestep_schedule(shift, timesteps, infer_steps=infer_steps)
+    if noise_schedule == "cosine":
+        effective_steps = infer_steps if infer_steps and infer_steps > 0 else 8
+        t_schedule_list = cosine_schedule(effective_steps, shift=shift)
+    elif infer_method == "auraflow":
+        effective_steps = infer_steps if infer_steps and infer_steps > 0 else 8
+        raw = [1.0 - i / effective_steps for i in range(effective_steps)]
+        if shift != 1.0:
+            raw = [shift * t / (1.0 + (shift - 1.0) * t) for t in raw]
+        t_schedule_list = raw
+    else:
+        t_schedule_list = get_timestep_schedule(shift, timesteps, infer_steps=infer_steps)
     num_steps = len(t_schedule_list)
 
     cover_steps = int(num_steps * audio_cover_strength)
@@ -283,13 +296,11 @@ def mlx_generate_diffusion(
             else:
                 vt = pred_cond
 
-        # Final step: compute x0
         if step_idx == num_steps - 1:
             t_unsq = mx.full((bsz, 1, 1), current_t)
             xt = xt - vt * t_unsq
             mx.eval(xt)
         else:
-            # ODE / SDE update
             next_t = t_schedule_list[step_idx + 1]
             if infer_method == "sde":
                 t_unsq = mx.full((bsz, 1, 1), current_t)

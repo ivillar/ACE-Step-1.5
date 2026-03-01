@@ -40,6 +40,8 @@ from transformers.models.qwen3.modeling_qwen3 import (
 
 from vector_quantize_pytorch import ResidualFSQ
 
+from acestep.core.generation.samplers.schedules import cosine_schedule
+
 # Local config import with fallback
 try:
     from .configuration_acestep_v15 import AceStepConfig
@@ -1802,6 +1804,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         shift: float = 3.0,
         timesteps: Optional[torch.Tensor] = None,
         cover_noise_strength: float = 0.0,
+        noise_schedule: str = "linear",
         **kwargs,
     ):
         # Valid shifts: only discrete values 1, 2, 3 are supported
@@ -1824,8 +1827,18 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         
         # Determine the timestep schedule to use
         t_schedule_list = None
-        
-        if timesteps is not None:
+
+        if noise_schedule == "cosine":
+            num_steps = fix_nfe if fix_nfe and fix_nfe > 0 else 8
+            t_schedule_list = cosine_schedule(num_steps, shift=shift)
+        elif infer_method == "auraflow":
+            num_steps = fix_nfe if fix_nfe and fix_nfe > 0 else 8
+            raw = [1.0 - i / num_steps for i in range(num_steps)]
+            if shift != 1.0:
+                raw = [shift * t / (1.0 + (shift - 1.0) * t) for t in raw]
+            t_schedule_list = raw
+
+        if t_schedule_list is None and timesteps is not None:
             # Process custom timesteps: map each value to nearest valid timestep
             timesteps_list = timesteps.tolist() if isinstance(timesteps, torch.Tensor) else list(timesteps)
             
@@ -1943,19 +1956,22 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         
         # Recalculate cover_steps based on actual num_steps
         cover_steps = int(num_steps * audio_cover_strength)
+
         _switched_to_non_cover = False
         for step_idx in range(num_steps):
+            past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
+
             current_timestep = t_schedule[step_idx].item()
             t_curr_tensor = current_timestep * torch.ones((bsz,), device=device, dtype=dtype)
-            
+
             if step_idx >= cover_steps and not _switched_to_non_cover:
                 _switched_to_non_cover = True
                 encoder_hidden_states = encoder_hidden_states_non_cover
                 encoder_attention_mask = encoder_attention_mask_non_cover
                 context_latents = context_latents_non_cover
                 past_key_values = EncoderDecoderCache(DynamicCache(), DynamicCache())
-            
-            with torch.no_grad():        
+
+            with torch.no_grad():
                 decoder_outputs = self.decoder(
                     hidden_states=xt,
                     timestep=t_curr_tensor,
@@ -1967,29 +1983,25 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                     use_cache=True,
                     past_key_values=past_key_values,
                 )
-                
+
             vt = decoder_outputs[0]
             past_key_values = decoder_outputs[1]
-            
-            # On final step, directly compute x0 from noise
+
             if step_idx == num_steps - 1:
                 xt = self.get_x0_from_noise(xt, vt, t_curr_tensor)
                 break
-            
-            # Update x_t based on inference method
-            if infer_method == "sde":
-                # Stochastic Differential Equation: predict clean, then re-add noise
+            elif infer_method == "sde":
                 pred_clean = self.get_x0_from_noise(xt, vt, t_curr_tensor)
                 next_timestep = t_schedule[step_idx + 1].item()
                 xt = self.renoise(pred_clean, next_timestep)
-            elif infer_method == "ode":
-                # Ordinary Differential Equation: Euler method
-                # dx/dt = -v, so x_{t+1} = x_t - v_t * dt
+            else:
                 next_timestep = t_schedule[step_idx + 1].item()
                 dt = current_timestep - next_timestep
-                dt_tensor = dt * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                dt_tensor = dt * torch.ones(
+                    (bsz,), device=device, dtype=dtype,
+                ).unsqueeze(-1).unsqueeze(-1)
                 xt = xt - vt * dt_tensor
-        
+
         x_gen = xt
         end_time = time.time()
         time_costs["diffusion_time_cost"] = end_time - start_time

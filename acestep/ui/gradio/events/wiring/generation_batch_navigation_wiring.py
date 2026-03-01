@@ -136,6 +136,7 @@ def _build_capture_current_params_inputs(generation_section: dict[str, Any]) -> 
         generation_section["cfg_interval_end"],
         generation_section["shift"],
         generation_section["infer_method"],
+        generation_section["noise_schedule"],
         generation_section["custom_timesteps"],
         generation_section["audio_format"],
         generation_section["lm_temperature"],

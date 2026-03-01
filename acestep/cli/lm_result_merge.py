@@ -18,9 +18,17 @@ def apply_lm_results_to_params(
     edited_lyrics = lm_result.get("edited_lyrics")
     edited_instruction = lm_result.get("edited_instruction")
     lm_metadata = lm_result.get("lm_metadata") or {}
+    regenerated = lm_result.get("regenerated", False)
 
-    _apply_caption(params, edited_metas, edited_caption, lm_metadata)
-    _apply_lyrics(params, edited_lyrics, lm_metadata)
+    if regenerated:
+        # Second LM run already used current params; do not overwrite caption/lyrics
+        # with first-run edited draft. Still apply other metas (bpm, duration, etc.).
+        edited_metas_no_text = {k: v for k, v in edited_metas.items() if k != "caption"}
+        _apply_caption(params, edited_metas_no_text, None, lm_metadata)
+        _apply_lyrics(params, None, lm_metadata)
+    else:
+        _apply_caption(params, edited_metas, edited_caption, lm_metadata)
+        _apply_lyrics(params, edited_lyrics, lm_metadata)
 
     if edited_instruction:
         params.instruction = edited_instruction
@@ -37,6 +45,7 @@ def apply_lm_results_to_params(
 
     params.thinking = False
     params.use_cot_caption = False
+    params.use_cot_lyrics = False
     params.use_cot_language = False
     params.use_cot_metas = False
 

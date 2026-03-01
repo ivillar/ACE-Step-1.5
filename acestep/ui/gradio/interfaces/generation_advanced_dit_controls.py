@@ -41,10 +41,17 @@ def build_dit_controls(ui_config: dict[str, Any]) -> dict[str, Any]:
                 visible=ui_config["guidance_scale_visible"],
             )
             infer_method = gr.Dropdown(
-                choices=["ode", "sde"],
+                choices=["ode", "sde", "auraflow"],
                 value="ode",
                 label=t("generation.infer_method_label"),
                 info=t("generation.infer_method_info"),
+                elem_classes=["has-info-container"],
+            )
+            noise_schedule = gr.Dropdown(
+                choices=["linear", "cosine"],
+                value="linear",
+                label=t("generation.noise_schedule_label"),
+                info=t("generation.noise_schedule_info"),
                 elem_classes=["has-info-container"],
             )
         with gr.Row():
@@ -108,6 +115,7 @@ def build_dit_controls(ui_config: dict[str, Any]) -> dict[str, Any]:
         "inference_steps": inference_steps,
         "guidance_scale": guidance_scale,
         "infer_method": infer_method,
+        "noise_schedule": noise_schedule,
         "use_adg": use_adg,
         "shift": shift,
         "custom_timesteps": custom_timesteps,

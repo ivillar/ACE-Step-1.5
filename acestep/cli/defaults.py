@@ -65,6 +65,7 @@ def build_all_defaults(
         "cfg_interval_end": params.cfg_interval_end,
         "shift": 3.0,
         "infer_method": params.infer_method,
+        "noise_schedule": params.noise_schedule,
         "timesteps": None,
         "repainting_start": params.repainting_start,
         "repainting_end": params.repainting_end,

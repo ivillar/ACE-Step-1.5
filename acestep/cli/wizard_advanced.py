@@ -57,7 +57,10 @@ def _collect_dit_settings(args) -> None:
         )
     args.shift = prompt_float("Timestep shift (1.0-5.0)", args.shift, 1.0, 5.0)
     args.infer_method = prompt_with_default(
-        "Inference method (ode/sde)", args.infer_method,
+        "Inference method (ode/sde/auraflow)", args.infer_method,
+    )
+    args.noise_schedule = prompt_with_default(
+        "Noise schedule (linear/cosine)", getattr(args, "noise_schedule", "linear"),
     )
     timesteps_input = prompt_with_default(
         "Custom timesteps list (e.g., [0.97, 0.5, 0])", args.timesteps, required=False,

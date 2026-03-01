@@ -1138,6 +1138,7 @@ class LLMHandler:
         use_cot_metas: bool = True,
         use_cot_caption: bool = True,
         use_cot_language: bool = True,
+        use_cot_lyrics: bool = False,
         batch_size: Optional[int] = None,
         seeds: Optional[List[int]] = None,
         progress=None,
@@ -1154,6 +1155,7 @@ class LLMHandler:
                            If specified, constrained decoding will inject these values directly.
             use_cot_caption: Whether to generate caption in CoT (default True).
             use_cot_language: Whether to generate language in CoT (default True).
+            use_cot_lyrics: Whether to generate lyrics in CoT when lyrics are empty (default False).
             batch_size: Optional batch size for batch generation. If None or 1, returns single result.
                        If > 1, returns batch results (lists).
             seeds: Optional list of seeds for batch generation (for reproducibility).
@@ -1238,7 +1240,7 @@ class LLMHandler:
                 },
                 use_constrained_decoding=use_constrained_decoding,
                 constrained_decoding_debug=constrained_decoding_debug,
-                stop_at_reasoning=True,  # Always stop at </think> in Phase 1
+                stop_at_reasoning=not (use_cot_lyrics and not (lyrics or "").strip()),
             )
 
             phase1_time = time.time() - phase1_start
@@ -1254,6 +1256,16 @@ class LLMHandler:
 
             # Parse metadata from CoT output
             metadata, _ = self.parse_lm_output(cot_output_text)
+            # When use_cot_lyrics and lyrics were empty, extract lyrics from after </think>
+            if use_cot_lyrics and not (lyrics or "").strip():
+                extracted = self._extract_lyrics_from_output(cot_output_text)
+                if extracted:
+                    # Drop any trailing audio code tokens if the model continued past lyrics
+                    import re
+                    code_pattern = r'<\|audio_code_\d+\|>'
+                    if re.search(code_pattern, extracted):
+                        extracted = re.split(code_pattern, extracted, maxsplit=1)[0]
+                    metadata["lyrics"] = extracted.strip()
             if is_batch:
                 logger.info(f"Batch Phase 1 completed in {phase1_time:.2f}s. Generated metadata: {list(metadata.keys())}")
             else:
@@ -2618,8 +2630,11 @@ class LLMHandler:
                         metadata['keyscale'] = value.strip()
                     elif current_key == 'language':
                         metadata['language'] = value.strip()
+                        metadata['vocal_language'] = value.strip()
                     elif current_key == 'timesignature':
                         metadata['timesignature'] = value.strip()
+                    elif current_key == 'lyrics':
+                        metadata['lyrics'] = value.strip()
 
                 current_key = None
                 current_value_lines = []

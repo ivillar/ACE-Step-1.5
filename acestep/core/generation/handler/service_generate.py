@@ -43,6 +43,7 @@ class ServiceGenerateMixin:
         audio_code_hints: Optional[Union[str, List[str]]] = None,
         infer_method: str = "ode",
         timesteps: Optional[List[float]] = None,
+        noise_schedule: str = "linear",
     ) -> Dict[str, Any]:
         """Generate music latents and metadata from text/audio conditioning inputs.
 
@@ -124,6 +125,7 @@ class ServiceGenerateMixin:
             cfg_interval_end=cfg_interval_end,
             shift=shift,
             timesteps=timesteps,
+            noise_schedule=noise_schedule,
         )
         outputs, encoder_hidden_states, encoder_attention_mask, context_latents = (
             self._execute_service_generate_diffusion(

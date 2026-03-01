@@ -47,6 +47,7 @@ class GenerateMusicMixin:
         cfg_interval_end: float = 1.0,
         shift: float = 1.0,
         infer_method: str = "ode",
+        noise_schedule: str = "linear",
         use_tiled_decode: bool = True,
         timesteps: Optional[List[float]] = None,
         latent_shift: float = 0.0,
@@ -151,6 +152,7 @@ class GenerateMusicMixin:
                 cfg_interval_end=cfg_interval_end,
                 shift=shift,
                 infer_method=infer_method,
+                noise_schedule=noise_schedule,
             )
             outputs = service_run["outputs"]
             infer_steps_for_progress = service_run["infer_steps_for_progress"]

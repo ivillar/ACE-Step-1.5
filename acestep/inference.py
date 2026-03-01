@@ -134,7 +134,8 @@ class GenerationParams:
     cfg_interval_start: float = 0.0
     cfg_interval_end: float = 1.0
     shift: float = 1.0
-    infer_method: str = "ode"  # "ode" or "sde" - diffusion inference method
+    infer_method: str = "ode"  # "ode", "sde", or "auraflow"
+    noise_schedule: str = "linear"  # Timestep schedule: "linear" or "cosine"
     # Custom timesteps (parsed from string like "0.97,0.76,0.615,0.5,0.395,0.28,0.18,0.085,0")
     # If provided, overrides inference_steps and shift
     timesteps: Optional[List[float]] = None
@@ -153,7 +154,7 @@ class GenerationParams:
     lm_negative_prompt: str = "NO USER INPUT"
     use_cot_metas: bool = True
     use_cot_caption: bool = True
-    use_cot_lyrics: bool = False  # TODO: not used yet
+    use_cot_lyrics: bool = False
     use_cot_language: bool = True
     use_constrained_decoding: bool = True
 
@@ -403,17 +404,26 @@ def generate_music(
         # 2. use_cot_caption=True: enhance/generate caption via CoT
         # 3. use_cot_language=True: detect vocal language via CoT
         # 4. use_cot_metas=True: fill missing metadata via CoT
-        need_lm_for_cot = params.use_cot_caption or params.use_cot_language or params.use_cot_metas
+        # 5. use_cot_lyrics=True: generate lyrics via CoT when lyrics are empty
+        need_lm_for_cot = (
+            params.use_cot_caption
+            or params.use_cot_language
+            or params.use_cot_metas
+            or params.use_cot_lyrics
+        )
         use_lm = (params.thinking or need_lm_for_cot) and llm_handler is not None and llm_handler.llm_initialized and params.task_type not in skip_lm_tasks
         lm_status = []
         
         if params.task_type in skip_lm_tasks:
             logger.info(f"Skipping LM for task_type='{params.task_type}' - using DiT directly")
         
-        logger.info(f"[generate_music] LLM usage decision: thinking={params.thinking}, "
-                   f"use_cot_caption={params.use_cot_caption}, use_cot_language={params.use_cot_language}, "
-                   f"use_cot_metas={params.use_cot_metas}, need_lm_for_cot={need_lm_for_cot}, "
-                   f"llm_initialized={llm_handler.llm_initialized if llm_handler else False}, use_lm={use_lm}")
+        logger.info(
+            f"[generate_music] LLM usage decision: thinking={params.thinking}, "
+            f"use_cot_caption={params.use_cot_caption}, use_cot_language={params.use_cot_language}, "
+            f"use_cot_metas={params.use_cot_metas}, use_cot_lyrics={params.use_cot_lyrics}, "
+            f"need_lm_for_cot={need_lm_for_cot}, "
+            f"llm_initialized={llm_handler.llm_initialized if llm_handler else False}, use_lm={use_lm}",
+        )
         
         if use_lm:
             # Convert sampling parameters - handle None values safely
@@ -461,6 +471,7 @@ def generate_music(
                     user_metadata=user_metadata_to_pass,
                     use_cot_caption=params.use_cot_caption,
                     use_cot_language=params.use_cot_language,
+                    use_cot_lyrics=params.use_cot_lyrics,
                     use_cot_metas=params.use_cot_metas,
                     use_constrained_decoding=params.use_constrained_decoding,
                     constrained_decoding_debug=config.constrained_decoding_debug,
@@ -544,11 +555,15 @@ def generate_music(
                 if not params.lyrics:
                     params.cot_lyrics = lyrics
 
-            # set cot caption and language if needed
+            # Set CoT-derived inputs for DiT when requested
             if params.use_cot_caption:
                 dit_input_caption = lm_generated_metadata.get("caption", dit_input_caption)
             if params.use_cot_language:
-                dit_input_vocal_language = lm_generated_metadata.get("vocal_language", dit_input_vocal_language)
+                dit_input_vocal_language = lm_generated_metadata.get(
+                    "vocal_language", lm_generated_metadata.get("language", dit_input_vocal_language)
+                )
+            if params.use_cot_lyrics:
+                dit_input_lyrics = lm_generated_metadata.get("lyrics", dit_input_lyrics) or dit_input_lyrics
 
         # Repaint/cover: no LM run, so conditioning must come from params (caption + lyrics from GUI).
         if params.task_type in ("repaint", "cover"):
@@ -588,6 +603,7 @@ def generate_music(
             cfg_interval_end=params.cfg_interval_end,
             shift=params.shift,
             infer_method=params.infer_method,
+            noise_schedule=params.noise_schedule,
             timesteps=params.timesteps,
             latent_shift=params.latent_shift,
             latent_rescale=params.latent_rescale,
