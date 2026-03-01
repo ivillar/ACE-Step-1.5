@@ -16,6 +16,11 @@ import torch
 
 
 from acestep.audio_utils import AudioSaver, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
+from acestep.generation_helpers import (
+    accumulate_lm_time_costs,
+    build_user_metadata,
+    format_seed_string,
+)
 
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
@@ -360,28 +365,10 @@ def generate_music(
         # Determine actual batch size for chunk processing
         actual_batch_size = config.batch_size if config.batch_size is not None else 1
 
-        # Prepare seeds for batch generation
-        # Use config.seed if provided, otherwise fallback to params.seed
-        # Convert config.seed (None, int, or List[int]) to format that prepare_seeds accepts
-        seed_for_generation = ""
-        # Original code (commented out because it crashes on int seeds):
-        # if config.seeds is not None and len(config.seeds) > 0:
-        #     if isinstance(config.seeds, list):
-        #         # Convert List[int] to comma-separated string
-        #         seed_for_generation = ",".join(str(s) for s in config.seeds)
-
-        if config.seeds is not None:
-            if isinstance(config.seeds, list) and len(config.seeds) > 0:
-                # Convert List[int] to comma-separated string
-                seed_for_generation = ",".join(str(s) for s in config.seeds)
-            elif isinstance(config.seeds, int):
-                # Fix: Explicitly handle single integer seeds by converting to string.
-                # Previously, this would crash because 'len()' was called on an int.
-                seed_for_generation = str(config.seeds)
-
-        # Use dit_handler.prepare_seeds to handle seed list generation and padding
-        # This will handle all the logic: padding with random seeds if needed, etc.
-        actual_seed_list, _ = dit_handler.prepare_seeds(actual_batch_size, seed_for_generation, config.use_random_seed)
+        seed_for_generation = format_seed_string(config.seeds)
+        actual_seed_list, _ = dit_handler.prepare_seeds(
+            actual_batch_size, seed_for_generation, config.use_random_seed,
+        )
 
         # LM-based Chain-of-Thought reasoning
         # Skip LM for cover/repaint tasks - these tasks use reference/src audio directly
@@ -411,35 +398,9 @@ def generate_music(
             top_k_value = None if not params.lm_top_k or params.lm_top_k == 0 else int(params.lm_top_k)
             top_p_value = None if not params.lm_top_p or params.lm_top_p >= 1.0 else params.lm_top_p
 
-            # Build user_metadata from user-provided values
-            user_metadata = {}
-            if bpm is not None:
-                try:
-                    bpm_value = float(bpm)
-                    if bpm_value > 0:
-                        user_metadata['bpm'] = int(bpm_value)
-                except (ValueError, TypeError):
-                    pass
-
-            if key_scale and key_scale.strip():
-                key_scale_clean = key_scale.strip()
-                if key_scale_clean.lower() not in ["n/a", ""]:
-                    user_metadata['keyscale'] = key_scale_clean
-
-            if time_signature and time_signature.strip():
-                time_sig_clean = time_signature.strip()
-                if time_sig_clean.lower() not in ["n/a", ""]:
-                    user_metadata['timesignature'] = time_sig_clean
-
-            if audio_duration is not None:
-                try:
-                    duration_value = float(audio_duration)
-                    if duration_value > 0:
-                        user_metadata['duration'] = int(duration_value)
-                except (ValueError, TypeError):
-                    pass
-
-            user_metadata_to_pass = user_metadata if user_metadata else None
+            user_metadata_to_pass = build_user_metadata(
+                bpm, key_scale, time_signature, audio_duration,
+            )
 
             # Determine infer_type based on whether we need audio codes
             # - "llm_dit": generates both metas and audio codes (two-phase internally)
@@ -511,16 +472,14 @@ def generate_music(
                     all_metadata_list.append(metadata)
                     all_audio_codes_list.append(audio_codes)
 
-                # Collect time costs from LM extra_outputs
-                lm_extra = result.get("extra_outputs", {})
-                lm_chunk_time_costs = lm_extra.get("time_costs", {})
-                if lm_chunk_time_costs:
-                    # Accumulate time costs from all chunks
-                    for key in ["phase1_time", "phase2_time", "total_time"]:
-                        if key in lm_chunk_time_costs:
-                            lm_total_time_costs[key] += lm_chunk_time_costs[key]
-
-                    time_str = ", ".join([f"{k}: {v:.2f}s" for k, v in lm_chunk_time_costs.items()])
+                accumulate_lm_time_costs(lm_total_time_costs, result)
+                lm_chunk_tc = (result.get("extra_outputs") or {}).get(
+                    "time_costs", {},
+                )
+                if lm_chunk_tc:
+                    time_str = ", ".join(
+                        f"{k}: {v:.2f}s" for k, v in lm_chunk_tc.items()
+                    )
                     lm_status.append(f"✅ LM chunk {chunk_idx+1}: {time_str}")
 
             lm_generated_metadata = all_metadata_list[0] if all_metadata_list else None

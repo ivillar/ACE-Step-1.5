@@ -2,9 +2,13 @@
 
 from typing import Any, Dict, Optional
 
+from acestep.generation_helpers import (
+    accumulate_lm_time_costs,
+    build_user_metadata,
+    format_seed_string,
+    safe_parse_metadata_value,
+)
 from acestep.inference import GenerationConfig, GenerationParams
-
-from acestep.cli.parsing import parse_number
 
 
 def run_lm_generation(
@@ -29,7 +33,7 @@ def run_lm_generation(
         else params.lm_top_p
     )
     actual_batch_size = config.batch_size if config.batch_size is not None else 1
-    seed_str = _format_seed_string(config)
+    seed_str = format_seed_string(config.seeds)
     actual_seed_list, _ = dit_handler.prepare_seeds(
         actual_batch_size, seed_str, config.use_random_seed,
     )
@@ -60,7 +64,7 @@ def run_lm_generation(
             batch_size=actual_batch_size,
             seeds=actual_seed_list,
         )
-        _accumulate_time_costs(lm_time_costs, lm_result)
+        accumulate_lm_time_costs(lm_time_costs, lm_result)
 
         if not lm_result.get("success", False):
             error_msg = lm_result.get("error", "Unknown LM error")
@@ -110,62 +114,18 @@ def snapshot_originals(params: GenerationParams) -> Dict[str, Any]:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _format_seed_string(config: GenerationConfig) -> str:
-    if config.seeds is None:
-        return ""
-    if isinstance(config.seeds, list) and len(config.seeds) > 0:
-        return ",".join(str(s) for s in config.seeds)
-    if isinstance(config.seeds, int):
-        return str(config.seeds)
-    return ""
-
-
 def _build_user_metadata(params: GenerationParams, attempt: int) -> Optional[dict]:
-    meta: dict = {}
-    if params.bpm is not None:
-        try:
-            bpm_value = float(params.bpm)
-            if bpm_value > 0:
-                meta["bpm"] = int(bpm_value)
-        except (ValueError, TypeError):
-            pass
-    if (
-        params.keyscale and params.keyscale.strip()
-        and params.keyscale.strip().lower() not in {"n/a", ""}
-    ):
-        meta["keyscale"] = params.keyscale.strip()
-    if (
-        params.timesignature and params.timesignature.strip()
-        and params.timesignature.strip().lower() not in {"n/a", ""}
-    ):
-        meta["timesignature"] = params.timesignature.strip()
-    if params.duration is not None:
-        try:
-            duration_value = float(params.duration)
-            if duration_value > 0:
-                meta["duration"] = int(duration_value)
-        except (ValueError, TypeError):
-            pass
+    """Thin wrapper around ``build_user_metadata`` that adds retry-specific extras."""
+    extras: Optional[dict] = None
     if attempt > 0:
+        extras = {}
         if params.caption and params.caption.strip():
-            meta["caption"] = params.caption.strip()
+            extras["caption"] = params.caption.strip()
         if params.vocal_language and params.vocal_language not in ("", "unknown"):
-            meta["language"] = params.vocal_language
-    return meta or None
-
-
-def _accumulate_time_costs(lm_time_costs: Dict[str, float], lm_result: dict) -> None:
-    extra = (lm_result.get("extra_outputs") or {}).get("time_costs", {})
-    if not extra:
-        return
-    lm_time_costs["phase1_time"] += float(extra.get("phase1_time", 0.0) or 0.0)
-    lm_time_costs["phase2_time"] += float(extra.get("phase2_time", 0.0) or 0.0)
-    lm_time_costs["total_time"] += float(
-        extra.get(
-            "total_time",
-            (extra.get("phase1_time", 0.0) or 0.0)
-            + (extra.get("phase2_time", 0.0) or 0.0),
-        ) or 0.0
+            extras["language"] = params.vocal_language
+    return build_user_metadata(
+        params.bpm, params.keyscale, params.timesignature,
+        params.duration, extras=extras,
     )
 
 
@@ -180,9 +140,13 @@ def _should_regenerate(llm_handler, params, originals) -> bool:
         return False
 
     if changes["duration"]:
-        params.duration = _safe_parse("duration", edited_metas, as_float=True)
+        params.duration = safe_parse_metadata_value(
+            "duration", edited_metas, as_float=True,
+        )
     if changes["bpm"]:
-        params.bpm = _safe_parse("bpm", edited_metas, as_int=True)
+        params.bpm = safe_parse_metadata_value(
+            "bpm", edited_metas, as_int=True,
+        )
     if changes["keyscale"]:
         params.keyscale = edited_metas.get("keyscale")
     if changes["timesignature"]:
@@ -201,8 +165,8 @@ def _should_regenerate(llm_handler, params, originals) -> bool:
 
 
 def _detect_meta_changes(edited_metas: dict, originals: dict) -> Dict[str, bool]:
-    parsed_dur = _safe_parse("duration", edited_metas, as_float=True)
-    parsed_bpm = _safe_parse("bpm", edited_metas, as_int=True)
+    parsed_dur = safe_parse_metadata_value("duration", edited_metas, as_float=True)
+    parsed_bpm = safe_parse_metadata_value("bpm", edited_metas, as_int=True)
     orig_dur = originals["duration"]
     return {
         "duration": parsed_dur is not None and (
@@ -224,18 +188,3 @@ def _detect_meta_changes(edited_metas: dict, originals: dict) -> Dict[str, bool]
             != originals["vocal_language"]
         ),
     }
-
-
-def _safe_parse(
-    key: str, metas: dict,
-    as_int: bool = False, as_float: bool = False,
-) -> Optional[float]:
-    raw = metas.get(key)
-    if not raw:
-        return None
-    parsed = parse_number(raw)
-    if parsed is None or parsed <= 0:
-        return None
-    if as_int:
-        return int(parsed)
-    return float(parsed) if as_float else parsed

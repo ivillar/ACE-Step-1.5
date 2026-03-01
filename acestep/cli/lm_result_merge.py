@@ -1,10 +1,10 @@
 """Merge LM generation results back into GenerationParams."""
 
-from typing import Any, Dict, Optional
-
-from acestep.inference import GenerationParams
+from typing import Any, Dict
 
 from acestep.cli.parsing import parse_number
+from acestep.generation_helpers import safe_parse_metadata_value
+from acestep.inference import GenerationParams
 
 
 def apply_lm_results_to_params(
@@ -72,27 +72,11 @@ def _apply_cot_language(params, edited_metas, lm_metadata) -> None:
             params.vocal_language = lm_lang
 
 
-def _safe_parse(
-    key: str, metas: dict,
-    as_int: bool = False, as_float: bool = False,
-) -> Optional[float]:
-    """Parse a numeric value from *metas[key]*, returning None on failure."""
-    raw = metas.get(key)
-    if not raw:
-        return None
-    parsed = parse_number(raw)
-    if parsed is None or parsed <= 0:
-        return None
-    if as_int:
-        return int(parsed)
-    return float(parsed) if as_float else parsed
-
-
 def _apply_edited_metas(params: GenerationParams, metas: dict) -> None:
-    bpm = _safe_parse("bpm", metas, as_int=True)
+    bpm = safe_parse_metadata_value("bpm", metas, as_int=True)
     if bpm is not None:
         params.bpm = bpm
-    duration = _safe_parse("duration", metas, as_float=True)
+    duration = safe_parse_metadata_value("duration", metas, as_float=True)
     if duration is not None:
         params.duration = duration
     if metas.get("keyscale"):
