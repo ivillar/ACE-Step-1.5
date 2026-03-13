@@ -1,26 +1,10 @@
 """MLX backend for 5Hz LM generation (Apple Silicon)."""
 
-import os
-import sys
-import traceback
 import time
-import random
-import warnings
-from typing import Optional, Dict, Any, Tuple, List, Union
-from contextlib import contextmanager
-import yaml
+
 import torch
 from loguru import logger
 from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers.generation.streamers import BaseStreamer
-from transformers.generation.logits_process import (
-    LogitsProcessorList,
-    RepetitionPenaltyLogitsProcessor,
-)
-from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
-from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
 
 
 def _is_mlx_available() -> bool:
@@ -34,13 +18,12 @@ def _is_mlx_available() -> bool:
         from acestep.models.mlx import mlx_available
         if not mlx_available():
             return False
-        import mlx_lm
         return True
     except Exception:
         return False
 
 
-def _load_mlx_model(self, model_path: str) -> Tuple[bool, str]:
+def _load_mlx_model(self, model_path: str) -> tuple[bool, str]:
     """
     Load the 5Hz LM model using mlx-lm for native Apple Silicon acceleration.
 
@@ -72,7 +55,8 @@ def _load_mlx_model(self, model_path: str) -> Tuple[bool, str]:
             )
             import glob as _glob
             from pathlib import Path
-            from mlx_lm.utils import load_model, load_config, load_tokenizer, _get_classes
+
+            from mlx_lm.utils import _get_classes, load_config
 
             _model_path = Path(model_path)
             config = load_config(_model_path)
@@ -131,7 +115,6 @@ def _load_mlx_model(self, model_path: str) -> Tuple[bool, str]:
 
 def _make_mlx_cache(self):
     """Create a KV cache for the MLX model."""
-    import mlx.core as mx
     try:
         from mlx_lm.models.cache import make_prompt_cache
         return make_prompt_cache(self._mlx_model)
@@ -139,10 +122,10 @@ def _make_mlx_cache(self):
         # Fallback: try model's own cache creation
         try:
             return self._mlx_model.make_cache()
-        except AttributeError:
+        except AttributeError as exc:
             raise RuntimeError(
                 "Cannot create MLX KV cache. Ensure mlx-lm version >= 0.20.0"
-            )
+            ) from exc
 
 
 def _run_mlx_batch_native(
@@ -152,17 +135,17 @@ def _run_mlx_batch_native(
     temperature: float,
     cfg_scale: float,
     negative_prompt: str,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     use_constrained_decoding: bool,
     constrained_decoding_debug: bool,
-    target_duration: Optional[float],
+    target_duration: float | None,
     caption: str,
     lyrics: str,
     cot_text: str,
-    seeds: Optional[List[int]] = None,
-) -> List[str]:
+    seeds: list[int] | None = None,
+) -> list[str]:
     """
     Optimized native MLX batch generation for codes phase.
 
@@ -184,8 +167,7 @@ def _run_mlx_batch_native(
     Raises on failure so the caller can fall back to sequential mode.
     """
     import mlx.core as mx
-    import numpy as np
-    from mlx_lm.models.cache import make_prompt_cache, KVCache
+    from mlx_lm.models.cache import KVCache, make_prompt_cache
     from mlx_lm.sample_utils import make_sampler
 
     # ---- Tokenize (single prompt, shared by all items) ----
@@ -318,7 +300,7 @@ def _run_mlx_batch_native(
         # Clone caches for each batch item (item 0 reuses the base cache)
         item_cond_caches = [base_cond_cache]
         item_uncond_caches = [base_uncond_cache]
-        for i in range(1, batch_size):
+        for _i in range(1, batch_size):
             item_cond_caches.append(_clone_cache_list(base_cond_cache))
             item_uncond_caches.append(_clone_cache_list(base_uncond_cache))
         # Eval cloned caches
@@ -354,7 +336,7 @@ def _run_mlx_batch_native(
         mx.eval(base_logits)
 
         item_caches = [base_cache]
-        for i in range(1, batch_size):
+        for _i in range(1, batch_size):
             item_caches.append(_clone_cache_list(base_cache))
         for i in range(1, batch_size):
             mx.eval(*[c.keys for c in item_caches[i] if c.keys is not None])
@@ -513,13 +495,13 @@ def _run_mlx_single_native(
     temperature: float,
     cfg_scale: float,
     negative_prompt: str,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     use_constrained_decoding: bool,
     constrained_decoding_debug: bool,
-    target_duration: Optional[float],
-    user_metadata: Optional[Dict[str, Optional[str]]],
+    target_duration: float | None,
+    user_metadata: dict[str, str | None] | None,
     stop_at_reasoning: bool,
     skip_genres: bool,
     skip_caption: bool,
@@ -837,13 +819,13 @@ def _run_mlx_single(
     temperature: float,
     cfg_scale: float,
     negative_prompt: str,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     use_constrained_decoding: bool,
     constrained_decoding_debug: bool,
-    target_duration: Optional[float],
-    user_metadata: Optional[Dict[str, Optional[str]]],
+    target_duration: float | None,
+    user_metadata: dict[str, str | None] | None,
     stop_at_reasoning: bool,
     skip_genres: bool,
     skip_caption: bool,
@@ -993,7 +975,7 @@ def _run_mlx_single(
     decode_start = time.time()
 
     pbar = tqdm(total=max_new_tokens, desc=tqdm_desc, unit="tok")
-    for step in range(max_new_tokens):
+    for _step in range(max_new_tokens):
         # Apply CFG formula in MLX
         if use_cfg:
             step_logits = last_uncond + cfg_scale * (last_cond - last_uncond)
@@ -1074,17 +1056,17 @@ def _run_mlx_single(
 
 def _run_mlx(
     self,
-    formatted_prompts: Union[str, List[str]],
+    formatted_prompts: str | list[str],
     temperature: float,
     cfg_scale: float,
     negative_prompt: str,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     use_constrained_decoding: bool = True,
     constrained_decoding_debug: bool = False,
-    target_duration: Optional[float] = None,
-    user_metadata: Optional[Dict[str, Optional[str]]] = None,
+    target_duration: float | None = None,
+    user_metadata: dict[str, str | None] | None = None,
     stop_at_reasoning: bool = False,
     skip_genres: bool = True,
     skip_caption: bool = False,
@@ -1093,8 +1075,8 @@ def _run_mlx(
     caption: str = "",
     lyrics: str = "",
     cot_text: str = "",
-    seeds: Optional[List[int]] = None,
-) -> Union[str, List[str]]:
+    seeds: list[int] | None = None,
+) -> str | list[str]:
     """
     Unified MLX generation function supporting both single and batch modes.
 

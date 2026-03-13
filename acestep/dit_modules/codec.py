@@ -1,17 +1,17 @@
 """Consolidated handler functions – codec module."""
 
 import math
-from typing import Optional
+import random
+import time as _time
+from typing import Any
+
+import numpy as np
 import torch
 from loguru import logger
-from acestep.gpu_config import get_gpu_memory_gb
 from tqdm import tqdm
-import os
-from typing import Any
-import time as _time
-import numpy as np
-import random
 
+from acestep.env_utils import env_is_truthy
+from acestep.gpu_config import get_gpu_memory_gb
 
 # --- From vae_encode.py ---
 
@@ -184,9 +184,9 @@ _MPS_DECODE_OVERLAP = 8
 def tiled_decode(
     self,
     latents,
-    chunk_size: Optional[int] = None,
+    chunk_size: int | None = None,
     overlap: int = 64,
-    offload_wav_to_cpu: Optional[bool] = None,
+    offload_wav_to_cpu: bool | None = None,
 ):
     """Decode latents using tiling to reduce VRAM usage.
 
@@ -470,8 +470,8 @@ def _init_mlx_dit(self, compile_model: bool = False) -> bool:
             logger.info("[MLX-DiT] MLX not available on this platform; skipping.")
             return False
 
-        from acestep.models.mlx.dit_model import MLXDiTDecoder
         from acestep.models.mlx.dit_convert import convert_and_load
+        from acestep.models.mlx.dit_model import MLXDiTDecoder
 
         mlx_decoder = MLXDiTDecoder.from_config(self.config)
         convert_and_load(self.model, mlx_decoder)
@@ -522,17 +522,14 @@ def _init_mlx_vae(self) -> bool:
 
         import mlx.core as mx
         from mlx.utils import tree_map
-        from acestep.models.mlx.vae_model import MLXAutoEncoderOobleck
+
         from acestep.models.mlx.vae_convert import convert_and_load
+        from acestep.models.mlx.vae_model import MLXAutoEncoderOobleck
 
         mlx_vae = MLXAutoEncoderOobleck.from_pytorch_config(self.vae)
         convert_and_load(self.vae, mlx_vae)
 
-        use_fp16 = os.environ.get("ACESTEP_MLX_VAE_FP16", "0").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
+        use_fp16 = env_is_truthy("ACESTEP_MLX_VAE_FP16", "0")
         vae_dtype = mx.float16 if use_fp16 else mx.float32
 
         if use_fp16:
@@ -839,7 +836,7 @@ def _normalize_audio_to_stereo_48k(self, audio: torch.Tensor, sr: int) -> torch.
 
     return torch.clamp(audio, -1.0, 1.0)
 
-def process_target_audio(self, audio_file: Optional[str]) -> Optional[torch.Tensor]:
+def process_target_audio(self, audio_file: str | None) -> torch.Tensor | None:
     """Load and normalize target audio file.
 
     Args:
@@ -863,7 +860,7 @@ def process_target_audio(self, audio_file: Optional[str]) -> Optional[torch.Tens
         logger.exception("[process_target_audio] Error processing target audio")
         return None
 
-def process_reference_audio(self, audio_file: Optional[str]) -> Optional[torch.Tensor]:
+def process_reference_audio(self, audio_file: str | None) -> torch.Tensor | None:
     """Load and normalize reference audio, then sample 3x10s segments.
 
     Args:
@@ -915,7 +912,7 @@ def process_reference_audio(self, audio_file: Optional[str]) -> Optional[torch.T
         logger.warning(f"[process_reference_audio] Invalid or unsupported reference audio: {exc}")
         return None
 
-def process_src_audio(self, audio_file: Optional[str]) -> Optional[torch.Tensor]:
+def process_src_audio(self, audio_file: str | None) -> torch.Tensor | None:
     """Load and normalize source audio for remix/extract flows.
 
     Args:

@@ -1,26 +1,10 @@
 """vLLM backend for 5Hz LM generation."""
 
-import os
-import sys
-import traceback
 import time
-import random
-import warnings
-from typing import Optional, Dict, Any, Tuple, List, Union
-from contextlib import contextmanager
-import yaml
+import traceback
+
 import torch
 from loguru import logger
-from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers.generation.streamers import BaseStreamer
-from transformers.generation.logits_process import (
-    LogitsProcessorList,
-    RepetitionPenaltyLogitsProcessor,
-)
-from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
-from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
 
 
 def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False) -> str:
@@ -31,7 +15,7 @@ def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False) 
         logger.error("CUDA/ROCm is not available. Please check your GPU setup.")
         return "❌ CUDA/ROCm is not available. Please check your GPU setup."
     try:
-        from nanovllm import LLM, SamplingParams
+        from nanovllm import LLM, SamplingParams  # noqa: F401
     except ImportError:
         self.llm_initialized = False
         logger.error("nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .")
@@ -78,19 +62,19 @@ def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False) 
 
 def _run_vllm(
     self,
-    formatted_prompts: Union[str, List[str]],
+    formatted_prompts: str | list[str],
     temperature: float,
     cfg_scale: float,
     negative_prompt: str,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     use_constrained_decoding: bool = True,
     constrained_decoding_debug: bool = False,
-    metadata_temperature: Optional[float] = None,
-    codes_temperature: Optional[float] = None,
-    target_duration: Optional[float] = None,
-    user_metadata: Optional[Dict[str, Optional[str]]] = None,
+    metadata_temperature: float | None = None,
+    codes_temperature: float | None = None,
+    target_duration: float | None = None,
+    user_metadata: dict[str, str | None] | None = None,
     stop_at_reasoning: bool = False,
     skip_genres: bool = True,
     skip_caption: bool = False,
@@ -99,8 +83,8 @@ def _run_vllm(
     caption: str = "",
     lyrics: str = "",
     cot_text: str = "",
-    seeds: Optional[List[int]] = None,
-) -> Union[str, List[str]]:
+    seeds: list[int] | None = None,
+) -> str | list[str]:
     """
     Unified vllm generation function supporting both single and batch modes.
     Accepts either a single formatted prompt (str) or a list of formatted prompts (List[str]).

@@ -93,3 +93,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["acestep"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["acestep/third_parts"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B"]
+ignore = ["E501", "E741", "B905"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+exclude = ["acestep/third_parts", "acestep/models"]
+reportMissingImports = false
+reportMissingModuleSource = false

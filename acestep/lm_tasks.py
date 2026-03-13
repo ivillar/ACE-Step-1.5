@@ -1,26 +1,16 @@
 """LM task methods: understand, create_sample, format_sample."""
 
-import os
-import sys
-import traceback
-import time
-import random
-import warnings
-from typing import Optional, Dict, Any, Tuple, List, Union
-from contextlib import contextmanager
-import yaml
+from typing import Any
+
 import torch
 from loguru import logger
-from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers.generation.streamers import BaseStreamer
-from transformers.generation.logits_process import (
-    LogitsProcessorList,
-    RepetitionPenaltyLogitsProcessor,
+from transformers import AutoModelForCausalLM
+
+from acestep.constants import (
+    DEFAULT_LM_INSPIRED_INSTRUCTION,
+    DEFAULT_LM_REWRITE_INSTRUCTION,
+    DEFAULT_LM_UNDERSTAND_INSTRUCTION,
 )
-from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
-from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
 
 
 def build_formatted_prompt_for_understanding(
@@ -76,12 +66,12 @@ def understand_audio_from_codes(
     self,
     audio_codes: str,
     temperature: float = 0.3,
-    top_k: Optional[int] = None,
-    top_p: Optional[float] = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
     repetition_penalty: float = 1.0,
     use_constrained_decoding: bool = True,
     constrained_decoding_debug: bool = False,
-) -> Tuple[Dict[str, Any], str]:
+) -> tuple[dict[str, Any], str]:
     """
     Understand audio codes and generate metadata + lyrics.
 
@@ -271,14 +261,14 @@ def create_sample_from_query(
     self,
     query: str,
     instrumental: bool = False,
-    vocal_language: Optional[str] = None,
+    vocal_language: str | None = None,
     temperature: float = 0.85,
-    top_k: Optional[int] = None,
-    top_p: Optional[float] = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
     repetition_penalty: float = 1.0,
     use_constrained_decoding: bool = True,
     constrained_decoding_debug: bool = False,
-) -> Tuple[Dict[str, Any], str]:
+) -> tuple[dict[str, Any], str]:
     """
     Create a complete music sample from a user's natural language query.
 
@@ -333,7 +323,6 @@ def create_sample_from_query(
 
     # Build user_metadata if vocal_language is specified and is not "unknown"
     user_metadata = None
-    skip_language = False
     if vocal_language and vocal_language.strip() and vocal_language.strip().lower() != "unknown":
         # Use the specified language for constrained decoding
         user_metadata = {"language": vocal_language.strip()}
@@ -447,14 +436,14 @@ def format_sample_from_input(
     self,
     caption: str,
     lyrics: str,
-    user_metadata: Optional[Dict[str, Any]] = None,
+    user_metadata: dict[str, Any] | None = None,
     temperature: float = 0.85,
-    top_k: Optional[int] = None,
-    top_p: Optional[float] = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
     repetition_penalty: float = 1.0,
     use_constrained_decoding: bool = True,
     constrained_decoding_debug: bool = False,
-) -> Tuple[Dict[str, Any], str]:
+) -> tuple[dict[str, Any], str]:
     """
     Format user-provided caption and lyrics into structured music metadata.
 

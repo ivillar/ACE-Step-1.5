@@ -1,30 +1,26 @@
 """Consolidated handler functions – utils module."""
 
-import torch
-from loguru import logger
-import os
-from typing import Optional
-from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config
-from typing import Any, Dict, List, Optional, Union
 import json
+import os
+import random
+import re
 import threading
 import time
-import re
-from typing import Any, Dict, List, Optional, Tuple, Union
-from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT
-import random
-from typing import List, Optional, Tuple
-from acestep.constants import TASK_INSTRUCTIONS
-from typing import Tuple
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-from typing import Any, Dict, List, Optional
+from collections.abc import Sequence
+from typing import Any
+
+import torch
+from loguru import logger
+
+from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT, TASK_INSTRUCTIONS
+from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config
+
 from .lora.adapter_discovery import collect_adapter_names
 from .lora.controls import get_lora_status, set_active_lora_adapter, set_lora_scale, set_use_lora
 from .lora.lifecycle import add_lora, add_voice_lora, load_lora, remove_lora, unload_lora
 from .lora.registry_builder import rebuild_lora_registry
 from .lora.registry_state import debug_lora_registry_snapshot, ensure_lora_registry, sync_lora_state_from_service
 from .lora.scale_apply import apply_scale_to_adapter
-
 
 # --- From padding_utils.py ---
 
@@ -45,7 +41,7 @@ def prepare_padding_info(
         target_wavs_batch = []
         # Store padding info for each batch item to adjust repainting coordinates
         padding_info_batch = []
-        for i in range(actual_batch_size):
+        for _i in range(actual_batch_size):
             if processed_src_audio is not None:
                 if is_cover_task:
                     # Cover task: Use src_audio directly without padding
@@ -173,7 +169,7 @@ def is_silence(self, audio: torch.Tensor) -> bool:
     """Return True when audio is effectively silent."""
     return bool(torch.all(audio.abs() < 1e-6))
 
-def _get_system_memory_gb(self) -> Optional[float]:
+def _get_system_memory_gb(self) -> float | None:
     """Return total system RAM in GB when available."""
     try:
         page_size = os.sysconf("SC_PAGE_SIZE")
@@ -184,7 +180,7 @@ def _get_system_memory_gb(self) -> Optional[float]:
         return None
     return None
 
-def _get_effective_mps_memory_gb(self) -> Optional[float]:
+def _get_effective_mps_memory_gb(self) -> float | None:
     """Best-effort MPS memory estimate (recommended max or system RAM)."""
     if hasattr(torch, "mps") and hasattr(torch.mps, "recommended_max_memory"):
         try:
@@ -258,7 +254,7 @@ def _should_offload_wav_to_cpu(self) -> bool:
 def _vram_guard_reduce_batch(
     self,
     batch_size: int,
-    audio_duration: Optional[float] = None,
+    audio_duration: float | None = None,
     use_lm: bool = False,
 ) -> int:
     """Auto-reduce batch_size when free VRAM is too tight."""
@@ -307,7 +303,7 @@ def _vram_guard_reduce_batch(
         return max_safe_batch
     return batch_size
 
-def _get_vae_dtype(self, device: Optional[str] = None) -> torch.dtype:
+def _get_vae_dtype(self, device: str | None = None) -> torch.dtype:
     """Get VAE dtype based on target device and GPU tier."""
     target_device = device or self.device
     if target_device in ["cuda", "xpu"]:
@@ -329,7 +325,7 @@ def _create_default_meta(self) -> str:
         "- duration: 30 seconds\n"
     )
 
-def _dict_to_meta_string(self, meta_dict: Dict[str, Any]) -> str:
+def _dict_to_meta_string(self, meta_dict: dict[str, Any]) -> str:
     """Convert metadata dict to formatted string."""
     bpm = meta_dict.get("bpm", meta_dict.get("tempo", "N/A"))
     timesignature = meta_dict.get("timesignature", meta_dict.get("time_signature", "N/A"))
@@ -348,7 +344,7 @@ def _dict_to_meta_string(self, meta_dict: Dict[str, Any]) -> str:
         f"- duration: {duration}\n"
     )
 
-def _parse_metas(self, metas: List[Union[str, Dict[str, Any]]]) -> List[str]:
+def _parse_metas(self, metas: list[str | dict[str, Any]]) -> list[str]:
     """Parse and normalize metadata values with safe fallbacks."""
     parsed_metas = []
     for meta in metas:
@@ -364,20 +360,20 @@ def _parse_metas(self, metas: List[Union[str, Dict[str, Any]]]) -> List[str]:
     return parsed_metas
 
 def prepare_metadata(
-    self, bpm: Optional[Union[int, str]], key_scale: str, time_signature: str
-) -> Dict[str, Any]:
+    self, bpm: int | str | None, key_scale: str, time_signature: str
+) -> dict[str, Any]:
     """Build metadata dict for generation."""
     return self._build_metadata_dict(bpm, key_scale, time_signature)
 
 def _build_metadata_dict(
     self,
-    bpm: Optional[Union[int, str]],
+    bpm: int | str | None,
     key_scale: str,
     time_signature: str,
-    duration: Optional[float] = None,
-) -> Dict[str, Any]:
+    duration: float | None = None,
+) -> dict[str, Any]:
     """Build metadata dictionary with defaults for missing fields."""
-    metadata_dict: Dict[str, Any] = {}
+    metadata_dict: dict[str, Any] = {}
     metadata_dict["bpm"] = bpm if bpm else "N/A"
     metadata_dict["keyscale"] = key_scale if key_scale.strip() else "N/A"
     if time_signature.strip() and time_signature != "N/A" and time_signature:
@@ -407,7 +403,7 @@ def _load_progress_estimates(self) -> None:
     """Load persisted diffusion progress estimates if available."""
     try:
         if os.path.exists(self._progress_estimates_path):
-            with open(self._progress_estimates_path, "r", encoding="utf-8") as f:
+            with open(self._progress_estimates_path, encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, dict) and isinstance(data.get("records"), list):
                     self._progress_estimates = data
@@ -424,7 +420,7 @@ def _save_progress_estimates(self) -> None:
     except Exception:
         pass
 
-def _duration_bucket(self, duration_sec: Optional[float]) -> str:
+def _duration_bucket(self, duration_sec: float | None) -> str:
     if duration_sec is None or duration_sec <= 0:
         return "unknown"
     if duration_sec <= 60:
@@ -440,7 +436,7 @@ def _update_progress_estimate(
     per_step_sec: float,
     infer_steps: int,
     batch_size: int,
-    duration_sec: Optional[float],
+    duration_sec: float | None,
 ) -> None:
     if per_step_sec <= 0 or infer_steps <= 0:
         return
@@ -466,8 +462,8 @@ def _estimate_diffusion_per_step(
     self,
     infer_steps: int,
     batch_size: int,
-    duration_sec: Optional[float],
-) -> Optional[float]:
+    duration_sec: float | None,
+) -> float | None:
     # Prefer most recent exact-ish record
     target_bucket = self._duration_bucket(duration_sec)
     with self._progress_estimates_lock:
@@ -525,7 +521,7 @@ def _start_diffusion_progress_estimator(
     end: float,
     infer_steps: int,
     batch_size: int,
-    duration_sec: Optional[float],
+    duration_sec: float | None,
     desc: str,
 ):
     """Best-effort progress updates during diffusion using previous step timing."""
@@ -572,7 +568,7 @@ def _format_lyrics(self, lyrics: str, language: str) -> str:
     return f"# Languages\n{language}\n\n# Lyric\n{lyrics}<|endoftext|>"
 
 def _pad_sequences(
-    self, sequences: List[torch.Tensor], max_length: int, pad_value: int = 0
+    self, sequences: list[torch.Tensor], max_length: int, pad_value: int = 0
 ) -> torch.Tensor:
     """Pad sequence tensors to the same length."""
     return torch.stack(
@@ -598,12 +594,12 @@ def extract_caption_from_sft_format(self, caption: str) -> str:
 def build_dit_inputs(
     self,
     task: str,
-    instruction: Optional[str],
+    instruction: str | None,
     caption: str,
     lyrics: str,
-    metas: Optional[Union[str, Dict[str, Any]]] = None,
+    metas: str | dict[str, Any] | None = None,
     vocal_language: str = "en",
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Build caption and lyric input text for DiT branches.
 
     Args:
@@ -643,7 +639,7 @@ def build_dit_inputs(
     lyrics_input = self._format_lyrics(lyrics, actual_language)
     return caption_input, lyrics_input
 
-def _get_text_hidden_states(self, text_prompt: str) -> Tuple[torch.Tensor, torch.Tensor]:
+def _get_text_hidden_states(self, text_prompt: str) -> tuple[torch.Tensor, torch.Tensor]:
     """Get hidden states and attention mask from text encoder."""
     if self.text_tokenizer is None or self.text_encoder is None:
         raise ValueError("Text encoder not initialized")
@@ -677,10 +673,10 @@ def _get_text_hidden_states(self, text_prompt: str) -> Tuple[torch.Tensor, torch
 
 def _extract_caption_and_language(
     self,
-    metas: List[Union[str, Dict[str, Any]]],
-    captions: List[str],
-    vocal_languages: List[str],
-) -> Tuple[List[str], List[str]]:
+    metas: list[str | dict[str, Any]],
+    captions: list[str],
+    vocal_languages: list[str],
+) -> tuple[list[str], list[str]]:
     """Extract caption/language values from metas with fallback values."""
     actual_captions = list(captions)
     actual_languages = list(vocal_languages)
@@ -708,16 +704,16 @@ def _extract_caption_and_language(
 
 def prepare_seeds(
     self, actual_batch_size: int, seed, use_random_seed: bool
-) -> Tuple[List[int], str]:
+) -> tuple[list[int], str]:
     """Prepare per-item seeds and UI seed string."""
-    actual_seed_list: List[int] = []
+    actual_seed_list: list[int] = []
     seed_value_for_ui = ""
     try:
         if use_random_seed:
             actual_seed_list = [random.randint(0, 2**32 - 1) for _ in range(actual_batch_size)]
             seed_value_for_ui = ", ".join(str(s) for s in actual_seed_list)
         else:
-            seed_list: List[int] = []
+            seed_list: list[int] = []
             if isinstance(seed, str):
                 for s in [s.strip() for s in seed.split(",")]:
                     if s == "-1" or s == "":
@@ -755,8 +751,8 @@ def prepare_seeds(
 def generate_instruction(
     self,
     task_type: str,
-    track_name: Optional[str] = None,
-    complete_track_classes: Optional[List[str]] = None,
+    track_name: str | None = None,
+    complete_track_classes: list[str] | None = None,
 ) -> str:
     """Generate task instruction text from task type and track context."""
     if task_type == "text2music":
@@ -814,7 +810,7 @@ def create_target_wavs(self, duration_seconds: float) -> torch.Tensor:
 
 # --- From training_preset.py ---
 
-def switch_to_training_preset(self) -> Tuple[str, bool]:
+def switch_to_training_preset(self) -> tuple[str, bool]:
     """Reinitialize with quantization disabled using the last successful init parameters.
 
     Returns:
@@ -851,8 +847,8 @@ def switch_to_training_preset(self) -> Tuple[str, bool]:
 # --- From lyric_alignment_common.py ---
 
 def _resolve_custom_layers_config(
-    self, custom_layers_config: Optional[Dict[int, List[int]]]
-) -> Dict[int, List[int]]:
+    self, custom_layers_config: dict[int, list[int]] | None
+) -> dict[int, list[int]]:
     """Return caller config when provided, otherwise host default config."""
     if custom_layers_config is not None:
         return custom_layers_config
@@ -864,7 +860,7 @@ def _move_alignment_inputs_to_runtime(
     encoder_hidden_states: torch.Tensor,
     encoder_attention_mask: torch.Tensor,
     context_latents: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Move alignment tensors to the handler runtime device and dtype."""
     device = self.device
     dtype = self.dtype
@@ -875,7 +871,7 @@ def _move_alignment_inputs_to_runtime(
         context_latents.to(device=device, dtype=dtype),
     )
 
-def _sample_noise_like(self, reference: torch.Tensor, seed: Optional[int]) -> torch.Tensor:
+def _sample_noise_like(self, reference: torch.Tensor, seed: int | None) -> torch.Tensor:
     """Sample deterministic noise for a tensor shape, including MPS-safe seeding."""
     if seed is None:
         return torch.randn_like(reference)
@@ -893,7 +889,7 @@ def _extract_lyric_segment(
     self,
     lyric_token_ids: torch.Tensor,
     vocal_language: str,
-) -> Tuple[Sequence[int], List[int], int, int]:
+) -> tuple[Sequence[int], list[int], int, int]:
     """Split token ids into header and lyric ranges."""
     raw_lyric_ids: Sequence[int]
     if isinstance(lyric_token_ids, torch.Tensor):
@@ -912,7 +908,7 @@ def _extract_lyric_segment(
     pure_lyric_ids = list(raw_lyric_ids[start_idx:end_idx])
     return raw_lyric_ids, pure_lyric_ids, start_idx, end_idx
 
-def _lyric_timestamp_error(self, message: str) -> Dict[str, Any]:
+def _lyric_timestamp_error(self, message: str) -> dict[str, Any]:
     """Build the standard timestamp error payload."""
     return {
         "lrc_text": "",
@@ -922,7 +918,7 @@ def _lyric_timestamp_error(self, message: str) -> Dict[str, Any]:
         "error": message,
     }
 
-def _lyric_score_error(self, message: str) -> Dict[str, Any]:
+def _lyric_score_error(self, message: str) -> dict[str, Any]:
     """Build the standard lyric-score error payload."""
     return {
         "lm_score": 0.0,
@@ -944,8 +940,8 @@ def get_lyric_score(
     vocal_language: str = "en",
     inference_steps: int = 8,
     seed: int = 42,
-    custom_layers_config: Optional[Dict[int, List[int]]] = None,
-) -> Dict[str, Any]:
+    custom_layers_config: dict[int, list[int]] | None = None,
+) -> dict[str, Any]:
     """Calculate lyric alignment scores for pure-noise and regressed-latent inputs.
 
     Args:
@@ -1091,8 +1087,8 @@ def _calculate_single_lyric_score(
     self,
     aligner: Any,
     matrix: torch.Tensor,
-    pure_lyric_ids: List[int],
-    custom_layers_config: Dict[int, List[int]],
+    pure_lyric_ids: list[int],
+    custom_layers_config: dict[int, list[int]],
 ) -> float:
     """Run one alignment-score evaluation against one attention matrix."""
     info = aligner.lyrics_alignment_info(
@@ -1125,8 +1121,8 @@ def get_lyric_timestamp(
     vocal_language: str = "en",
     inference_steps: int = 8,
     seed: int = 42,
-    custom_layers_config: Optional[Dict[int, List[int]]] = None,
-) -> Dict[str, Any]:
+    custom_layers_config: dict[int, list[int]] | None = None,
+) -> dict[str, Any]:
     """Generate LRC timestamps by aligning decoder cross-attention to lyric tokens.
 
     Args:

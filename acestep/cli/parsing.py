@@ -1,10 +1,9 @@
 """Parsing utilities for CLI arguments and user input."""
 
 import re
-from typing import Optional
 
 
-def parse_description_hints(description: str) -> tuple[Optional[str], bool]:
+def parse_description_hints(description: str) -> tuple[str | None, bool]:
     """Extract language and instrumental hints from a free-text description.
 
     Returns:
@@ -60,7 +59,7 @@ def parse_description_hints(description: str) -> tuple[Optional[str], bool]:
     return detected_language, is_instrumental
 
 
-def parse_number(value: str) -> Optional[float]:
+def parse_number(value: str) -> float | None:
     """Extract the first numeric substring from *value*."""
     try:
         match = re.search(r"[-+]?\d*\.?\d+", value)

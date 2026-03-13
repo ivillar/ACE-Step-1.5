@@ -3,22 +3,6 @@ Debug helpers (global).
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional, Callable, Union
-
-from acestep.constants import (
-    TENSOR_DEBUG_MODE,
-    DEBUG_API_SERVER,
-    DEBUG_INFERENCE,
-    DEBUG_TRAINING,
-    DEBUG_DATASET,
-    DEBUG_AUDIO,
-    DEBUG_LLM,
-    DEBUG_UI,
-    DEBUG_MODEL_LOADING,
-    DEBUG_GPU,
-)
-
 # ----------------------------------------------------------------------
 # CPU thread configuration
 # ----------------------------------------------------------------------
@@ -31,7 +15,24 @@ from acestep.constants import (
 # The function is executed at import time so that any subsequent
 # torch operations respect the setting.
 import os
+from collections.abc import Callable
+from datetime import datetime
+
 import torch
+
+from acestep.constants import (
+    DEBUG_API_SERVER,
+    DEBUG_AUDIO,
+    DEBUG_DATASET,
+    DEBUG_GPU,
+    DEBUG_INFERENCE,
+    DEBUG_LLM,
+    DEBUG_MODEL_LOADING,
+    DEBUG_TRAINING,
+    DEBUG_UI,
+    TENSOR_DEBUG_MODE,
+)
+
 
 def _configure_cpu_threads() -> None:
     """Set torch's intra-op and inter-op thread counts based on available CPUs.
@@ -119,7 +120,7 @@ def is_debug_verbose(mode: str) -> bool:
     return _normalize_mode(mode) == "VERBOSE"
 
 
-def debug_log(message: Union[str, Callable[[], str]], *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debug") -> None:
+def debug_log(message: str | Callable[[], str], *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debug") -> None:
     """Emit a timestamped debug log line if the mode is enabled."""
     if not is_debug_enabled(mode):
         return
@@ -149,25 +150,25 @@ def get_debug_mode(name: str, default: str = "OFF") -> str:
     return DEBUG_SWITCHES.get((name or "").strip().lower(), default)
 
 
-def debug_log_for(name: str, message: Union[str, Callable[[], str]], *, prefix: str | None = None) -> None:
+def debug_log_for(name: str, message: str | Callable[[], str], *, prefix: str | None = None) -> None:
     """Emit a timestamped debug log for a named subsystem."""
     mode = get_debug_mode(name)
     debug_log(message, mode=mode, prefix=prefix or name)
 
 
-def debug_start_for(name: str, label: str) -> Optional[float]:
+def debug_start_for(name: str, label: str) -> float | None:
     """Start timing for a named subsystem."""
     mode = get_debug_mode(name)
     return debug_start(label, mode=mode, prefix=name)
 
 
-def debug_end_for(name: str, label: str, start_ts: Optional[float]) -> None:
+def debug_end_for(name: str, label: str, start_ts: float | None) -> None:
     """End timing for a named subsystem."""
     mode = get_debug_mode(name)
     debug_end(label, start_ts, mode=mode, prefix=name)
 
 
-def debug_log_verbose_for(name: str, message: Union[str, Callable[[], str]], *, prefix: str | None = None) -> None:
+def debug_log_verbose_for(name: str, message: str | Callable[[], str], *, prefix: str | None = None) -> None:
     """Emit a timestamped debug log only in VERBOSE mode for a named subsystem."""
     mode = get_debug_mode(name)
     if not is_debug_verbose(mode):
@@ -175,7 +176,7 @@ def debug_log_verbose_for(name: str, message: Union[str, Callable[[], str]], *, 
     debug_log(message, mode=mode, prefix=prefix or name)
 
 
-def debug_start_verbose_for(name: str, label: str) -> Optional[float]:
+def debug_start_verbose_for(name: str, label: str) -> float | None:
     """Start timing only in VERBOSE mode for a named subsystem."""
     mode = get_debug_mode(name)
     if not is_debug_verbose(mode):
@@ -183,7 +184,7 @@ def debug_start_verbose_for(name: str, label: str) -> Optional[float]:
     return debug_start(label, mode=mode, prefix=name)
 
 
-def debug_end_verbose_for(name: str, label: str, start_ts: Optional[float]) -> None:
+def debug_end_verbose_for(name: str, label: str, start_ts: float | None) -> None:
     """End timing only in VERBOSE mode for a named subsystem."""
     mode = get_debug_mode(name)
     if not is_debug_verbose(mode):
@@ -191,7 +192,7 @@ def debug_end_verbose_for(name: str, label: str, start_ts: Optional[float]) -> N
     debug_end(label, start_ts, mode=mode, prefix=name)
 
 
-def debug_start(name: str, *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debug") -> Optional[float]:
+def debug_start(name: str, *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debug") -> float | None:
     """Return a start timestamp (perf counter) if enabled, otherwise None."""
     if not is_debug_enabled(mode):
         return None
@@ -200,7 +201,7 @@ def debug_start(name: str, *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debu
     return perf_counter()
 
 
-def debug_end(name: str, start_ts: Optional[float], *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debug") -> None:
+def debug_end(name: str, start_ts: float | None, *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debug") -> None:
     """Emit an END log with elapsed ms if enabled and start_ts is present."""
     if start_ts is None or not is_debug_enabled(mode):
         return

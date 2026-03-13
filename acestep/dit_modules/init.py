@@ -1,24 +1,22 @@
 """Consolidated handler functions – init module."""
 
-from typing import Any, Optional, Tuple
+import os
+import time
+import traceback
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
 import torch
 from loguru import logger
+
 from acestep import gpu_config
-import os
-from typing import List, Optional
-from pathlib import Path
-from typing import Optional, Tuple
 from acestep.model_downloader import (
     check_main_model_exists,
     check_model_exists,
     ensure_dit_model,
     ensure_main_model,
 )
-from typing import Optional
-import traceback
-import time
-from contextlib import contextmanager
-
 
 # --- From init_service_setup.py ---
 
@@ -71,8 +69,8 @@ def _configure_initialize_runtime(
     *,
     device: str,
     compile_model: bool,
-    quantization: Optional[str],
-) -> Tuple[bool, Optional[str], bool]:
+    quantization: str | None,
+) -> tuple[bool, str | None, bool]:
     """Apply backend constraints and return normalized compile/quantization settings."""
     mlx_compile_requested = False
     normalized_compile = compile_model
@@ -110,7 +108,7 @@ def _ensure_len_for_compile(model: Any, method_name: str) -> None:
     model.__class__.__len__ = _len_impl
     logger.debug(f"[initialize_service] Injected __len__ into {method_name} class for torch.compile")
 
-def _validate_quantization_setup(self, *, quantization: Optional[str], compile_model: bool) -> None:
+def _validate_quantization_setup(self, *, quantization: str | None, compile_model: bool) -> None:
     """Validate quantization prerequisites before model loading."""
     if quantization is None:
         return
@@ -130,7 +128,7 @@ def _initialize_mlx_backends(
     device: str,
     use_mlx_dit: bool,
     mlx_compile_requested: bool,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Initialize MLX DiT/VAE integrations and return status labels."""
     mlx_dit_status = "Disabled"
     if use_mlx_dit and device in ("mps", "cpu"):
@@ -197,7 +195,7 @@ def _device_type(self) -> str:
         return self.device.split(":", 1)[0]
     return self.device.type
 
-def get_available_checkpoints(self) -> List[str]:
+def get_available_checkpoints(self) -> list[str]:
     """Return available checkpoint directory paths under the project root."""
     project_root = self._get_project_root()
     checkpoint_dir = os.path.join(project_root, "checkpoints")
@@ -205,10 +203,10 @@ def get_available_checkpoints(self) -> List[str]:
         return [checkpoint_dir]
     return []
 
-def get_available_acestep_v15_models(self, checkpoints_dir=None) -> List[str]:
+def get_available_acestep_v15_models(self, checkpoints_dir=None) -> list[str]:
     """Scan and return all model directory names starting with ``acestep-v15-``."""
     project_root = self._get_project_root()
-    if not checkpoints_dir: 
+    if not checkpoints_dir:
         checkpoints_dir = os.path.join(project_root, "checkpoints")
 
     models = []
@@ -221,7 +219,7 @@ def get_available_acestep_v15_models(self, checkpoints_dir=None) -> List[str]:
     models.sort()
     return models
 
-def is_flash_attention_available(self, device: Optional[str] = None) -> bool:
+def is_flash_attention_available(self, device: str | None = None) -> bool:
     """Check whether flash attention can be used on the target device."""
     target_device = str(device or self.device or "auto").split(":", 1)[0]
     if target_device == "auto":
@@ -243,7 +241,7 @@ def is_flash_attention_available(self, device: Optional[str] = None) -> bool:
         return False
 
     try:
-        import flash_attn
+        import flash_attn  # noqa: F401
         return True
     except ImportError:
         return False
@@ -261,8 +259,8 @@ def _ensure_models_present(
     *,
     checkpoint_path: Path,
     config_path: str,
-    prefer_source: Optional[str],
-) -> Optional[Tuple[str, bool]]:
+    prefer_source: str | None,
+) -> tuple[str, bool] | None:
     """Ensure required checkpoint assets exist locally, downloading when missing."""
     if not check_main_model_exists(checkpoint_path):
         logger.info("[initialize_service] Main model not found, starting auto-download...")
@@ -308,7 +306,7 @@ def _load_main_model_from_checkpoint(
     device: str,
     use_flash_attention: bool,
     compile_model: bool,
-    quantization: Optional[str],
+    quantization: str | None,
 ) -> str:
     """Load DiT, apply compile/quantization options, and return selected attention backend."""
     from transformers import AutoModel
@@ -462,11 +460,11 @@ def initialize_service(
     compile_model: bool = False,
     offload_to_cpu: bool = False,
     offload_dit_to_cpu: bool = False,
-    quantization: Optional[str] = None,
-    prefer_source: Optional[str] = None,
-    checkpoint_dir: Optional[str] = None,
+    quantization: str | None = None,
+    prefer_source: str | None = None,
+    checkpoint_dir: str | None = None,
     use_mlx_dit: bool = True,
-) -> Tuple[str, bool]:
+) -> tuple[str, bool]:
     """Initialize model artifacts and runtime backends for generation.
 
     This method intentionally supports repeated calls to reinitialize models

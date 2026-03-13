@@ -4,19 +4,16 @@ Replaces LLMHandler. All functionality preserved via method binding
 from extracted modules (lm_core, lm_backends/*, lm_tasks).
 """
 
-import os
 import sys
-from typing import Optional
 
 import torch
 
+from acestep import lm_core, lm_tasks
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
-from acestep import lm_core
-from acestep.lm_backends import vllm as vllm_backend
-from acestep.lm_backends import pt as pt_backend
+from acestep.env_utils import env_is_truthy
 from acestep.lm_backends import mlx as mlx_backend
-from acestep import lm_tasks
-
+from acestep.lm_backends import pt as pt_backend
+from acestep.lm_backends import vllm as vllm_backend
 
 # Module-level constants (from original LLMHandler)
 VRAM_SAFE_FREE_GB = lm_core.VRAM_SAFE_FREE_GB
@@ -87,7 +84,7 @@ class AceStepLMWrapper:
     format_sample_from_input = lm_tasks.format_sample_from_input
     get_hf_model_for_scoring = lm_tasks.get_hf_model_for_scoring
 
-    def __init__(self, persistent_storage_path: Optional[str] = None):
+    def __init__(self, persistent_storage_path: str | None = None):
         """Initialize LM wrapper with default values."""
         self.llm = None
         self.llm_tokenizer = None
@@ -98,7 +95,7 @@ class AceStepLMWrapper:
         self.dtype = torch.float32
         self.offload_to_cpu = False
         self.disable_tqdm = (
-            os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes")
+            env_is_truthy("ACESTEP_DISABLE_TQDM")
             or not (hasattr(sys.stderr, 'isatty') and sys.stderr.isatty())
         )
 
@@ -108,7 +105,7 @@ class AceStepLMWrapper:
         self.persistent_storage_path = persistent_storage_path
 
         # Shared constrained decoding processor
-        self.constrained_processor: Optional[MetadataConstrainedLogitsProcessor] = None
+        self.constrained_processor: MetadataConstrainedLogitsProcessor | None = None
 
         # Shared HuggingFace model for perplexity calculation
         self._hf_model_for_scoring = None

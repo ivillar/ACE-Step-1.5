@@ -1,7 +1,7 @@
 """Consolidated LM pipeline: pre-generation steps, LM generation loop, result merging, and prompt editing."""
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from acestep.cli.parsing import parse_description_hints, parse_number
 from acestep.generation_helpers import (
@@ -11,7 +11,6 @@ from acestep.generation_helpers import (
     safe_parse_metadata_value,
 )
 from acestep.inference import GenerationConfig, GenerationParams, create_sample, format_sample
-
 
 # ---------------------------------------------------------------------------
 # Pre-generation steps
@@ -204,14 +203,14 @@ def _edit_formatted_prompt_via_file(formatted_prompt: str, instruction_path: str
     input()
 
     try:
-        with open(instruction_path, "r", encoding="utf-8") as f:
+        with open(instruction_path, encoding="utf-8") as f:
             return f.read()
     except Exception as e:
         print(f"WARNING: Failed to read {instruction_path}: {e}")
         return formatted_prompt
 
 
-def _extract_caption_lyrics(formatted_prompt: str) -> Tuple[Optional[str], Optional[str]]:
+def _extract_caption_lyrics(formatted_prompt: str) -> tuple[str | None, str | None]:
     """Best-effort extraction of caption and lyrics from a formatted prompt string."""
     matches = list(
         re.finditer(r"# Caption\n(.*?)\n+# Lyric\n(.*)", formatted_prompt, re.DOTALL)
@@ -236,7 +235,7 @@ def _extract_caption_lyrics(formatted_prompt: str) -> Tuple[Optional[str], Optio
     return caption or None, lyrics or None
 
 
-def _extract_instruction(formatted_prompt: str) -> Optional[str]:
+def _extract_instruction(formatted_prompt: str) -> str | None:
     """Best-effort extraction of instruction text from a formatted prompt string."""
     match = re.search(r"# Instruction\n(.*?)\n\n", formatted_prompt, re.DOTALL)
     if not match:
@@ -245,7 +244,7 @@ def _extract_instruction(formatted_prompt: str) -> Optional[str]:
     return instruction or None
 
 
-def _extract_cot_metadata(formatted_prompt: str) -> Dict[str, str]:
+def _extract_cot_metadata(formatted_prompt: str) -> dict[str, str]:
     """Best-effort extraction of COT metadata (supports multi-line values)."""
     matches = list(
         re.finditer(r"<think>\n(.*?)\n</think>", formatted_prompt, re.DOTALL)
@@ -253,8 +252,8 @@ def _extract_cot_metadata(formatted_prompt: str) -> Dict[str, str]:
     if not matches:
         return {}
     block = matches[-1].group(1)
-    metadata: Dict[str, str] = {}
-    current_key: Optional[str] = None
+    metadata: dict[str, str] = {}
+    current_key: str | None = None
     current_value_lines: list[str] = []
 
     for line in block.splitlines():
@@ -279,7 +278,7 @@ def _extract_cot_metadata(formatted_prompt: str) -> Dict[str, str]:
 def install_prompt_edit_hook(
     llm_handler,
     instruction_path: str,
-    preloaded_prompt: Optional[str] = None,
+    preloaded_prompt: str | None = None,
 ) -> None:
     """Monkey-patch *llm_handler.build_formatted_prompt_with_cot* to allow user editing."""
     original = llm_handler.build_formatted_prompt_with_cot
@@ -354,7 +353,7 @@ def install_prompt_edit_hook(
 # LM generation loop
 # ---------------------------------------------------------------------------
 
-def snapshot_originals(params: GenerationParams) -> Dict[str, Any]:
+def snapshot_originals(params: GenerationParams) -> dict[str, Any]:
     """Capture current param values before LM modifies them."""
     return {
         "duration": params.duration,
@@ -370,8 +369,8 @@ def run_lm_generation(
     dit_handler,
     params: GenerationParams,
     config: GenerationConfig,
-    originals: Dict[str, Any],
-) -> Dict[str, Any]:
+    originals: dict[str, Any],
+) -> dict[str, Any]:
     """Execute the LM generation loop (up to two attempts for metadata edits)."""
     top_k_value = (
         None if not params.lm_top_k or params.lm_top_k == 0
@@ -456,8 +455,8 @@ def run_lm_generation(
     }
 
 
-def _build_user_metadata(params: GenerationParams, attempt: int) -> Optional[dict]:
-    extras: Optional[dict] = None
+def _build_user_metadata(params: GenerationParams, attempt: int) -> dict | None:
+    extras: dict | None = None
     if attempt > 0:
         extras = {}
         if params.caption and params.caption.strip():
@@ -505,7 +504,7 @@ def _should_regenerate(llm_handler, params, originals) -> bool:
     return True
 
 
-def _detect_meta_changes(edited_metas: dict, originals: dict) -> Dict[str, bool]:
+def _detect_meta_changes(edited_metas: dict, originals: dict) -> dict[str, bool]:
     parsed_dur = safe_parse_metadata_value("duration", edited_metas, as_float=True)
     parsed_bpm = safe_parse_metadata_value("bpm", edited_metas, as_int=True)
     orig_dur = originals["duration"]
@@ -537,8 +536,8 @@ def _detect_meta_changes(edited_metas: dict, originals: dict) -> Dict[str, bool]
 
 def apply_lm_results(
     params: GenerationParams,
-    lm_result: Dict[str, Any],
-    originals: Dict[str, Any],
+    lm_result: dict[str, Any],
+    originals: dict[str, Any],
 ) -> None:
     """Merge LM outputs (metadata, edits) back into *params*."""
     edited_metas = lm_result.get("edited_metas") or {}
@@ -638,7 +637,7 @@ def _apply_lm_metadata_fallback(params: GenerationParams, lm_metadata: dict) -> 
 
 
 def _set_cot_fields(
-    params: GenerationParams, lm_metadata: dict, originals: Dict[str, Any],
+    params: GenerationParams, lm_metadata: dict, originals: dict[str, Any],
 ) -> None:
     if not lm_metadata:
         return

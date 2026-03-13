@@ -1,37 +1,32 @@
 """Consolidated handler functions – conditioning module."""
 
-from typing import Any, Dict, List, Optional, Union
-import torch
-from acestep.constants import DEFAULT_DIT_INSTRUCTION
-from typing import Dict, List, Tuple
-from loguru import logger
-from typing import Dict, List, Optional, Tuple
-from typing import List, Optional, Tuple
-from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT
-from typing import Dict, List, Optional, Union
 import re
 import traceback
-from typing import List, Optional
+from typing import Any
 
+import torch
+from loguru import logger
+
+from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT
 
 # --- From conditioning_batch.py ---
 
 def _prepare_batch(
     self,
-    captions: List[str],
-    lyrics: List[str],
-    keys: Optional[List[str]] = None,
-    target_wavs: Optional[torch.Tensor] = None,
-    refer_audios: Optional[List[List[torch.Tensor]]] = None,
-    metas: Optional[List[Union[str, Dict[str, Any]]]] = None,
-    vocal_languages: Optional[List[str]] = None,
-    repainting_start: Optional[List[float]] = None,
-    repainting_end: Optional[List[float]] = None,
-    instructions: Optional[List[str]] = None,
-    audio_code_hints: Optional[List[Optional[str]]] = None,
+    captions: list[str],
+    lyrics: list[str],
+    keys: list[str] | None = None,
+    target_wavs: torch.Tensor | None = None,
+    refer_audios: list[list[torch.Tensor]] | None = None,
+    metas: list[str | dict[str, Any]] | None = None,
+    vocal_languages: list[str] | None = None,
+    repainting_start: list[float] | None = None,
+    repainting_end: list[float] | None = None,
+    instructions: list[str] | None = None,
+    audio_code_hints: list[str | None] | None = None,
     audio_cover_strength: float = 1.0,
     cover_noise_strength: float = 0.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Prepare model-ready conditioning batch tensors and metadata.
 
     Args:
@@ -139,7 +134,7 @@ def _prepare_batch(
 
 # --- From conditioning_embed.py ---
 
-def infer_refer_latent(self, refer_audioss: List[List[torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
+def infer_refer_latent(self, refer_audioss: list[list[torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor]:
     """Infer packed reference-audio latents and order mask."""
     refer_audio_order_mask = []
     refer_audio_latents = []
@@ -165,7 +160,7 @@ def infer_refer_latent(self, refer_audioss: List[List[torch.Tensor]]) -> Tuple[t
             z = z.unsqueeze(0)
         return z
 
-    refer_encode_cache: Dict[int, torch.Tensor] = {}
+    refer_encode_cache: dict[int, torch.Tensor] = {}
     for batch_idx, refer_audios in enumerate(refer_audioss):
         if len(refer_audios) == 1 and torch.all(refer_audios[0] == 0.0):
             refer_audio_latent = _ensure_latent_3d(self.silence_latent[:, :750, :])
@@ -202,7 +197,7 @@ def infer_lyric_embeddings(self, lyric_token_ids):
     with torch.inference_mode():
         return self.text_encoder.embed_tokens(lyric_token_ids)
 
-def preprocess_batch(self, batch) -> Tuple:
+def preprocess_batch(self, batch) -> tuple:
     """Preprocess an already prepared batch for DiT model input."""
     target_latents = batch["target_latents"]
     src_latents = batch["src_latents"]
@@ -274,19 +269,19 @@ def _build_chunk_masks_and_src_latents(
     self,
     batch_size: int,
     max_latent_length: int,
-    instructions: List[str],
-    audio_code_hints: List[Optional[str]],
+    instructions: list[str],
+    audio_code_hints: list[str | None],
     target_wavs: torch.Tensor,
     target_latents: torch.Tensor,
-    repainting_start: Optional[List[float]],
-    repainting_end: Optional[List[float]],
+    repainting_start: list[float] | None,
+    repainting_end: list[float] | None,
     silence_latent_tiled: torch.Tensor,
-) -> Tuple[torch.Tensor, List[Tuple[str, int, int]], torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, list[tuple[str, int, int]], torch.Tensor, torch.Tensor]:
     """Create chunk masks/spans and corresponding source latents."""
     chunk_masks = []
     spans = []
     is_covers = []
-    repainting_ranges: Dict[int, Tuple[int, int]] = {}
+    repainting_ranges: dict[int, tuple[int, int]] = {}
 
     for i in range(batch_size):
         has_code_hint = audio_code_hints[i] is not None
@@ -345,10 +340,10 @@ def _build_chunk_masks_and_src_latents(
 def _prepare_precomputed_lm_hints(
     self,
     batch_size: int,
-    audio_code_hints: List[Optional[str]],
+    audio_code_hints: list[str | None],
     max_latent_length: int,
     silence_latent_tiled: torch.Tensor,
-) -> Optional[torch.Tensor]:
+) -> torch.Tensor | None:
     """Decode audio-code hints into padded 25Hz latent hints."""
     precomputed_lm_hints_25hz_list = []
     for i in range(batch_size):
@@ -382,13 +377,13 @@ def _prepare_precomputed_lm_hints(
 def _prepare_text_conditioning_inputs(
     self,
     batch_size: int,
-    instructions: List[str],
-    captions: List[str],
-    lyrics: List[str],
-    parsed_metas: List[str],
-    vocal_languages: List[str],
+    instructions: list[str],
+    captions: list[str],
+    lyrics: list[str],
+    parsed_metas: list[str],
+    vocal_languages: list[str],
     audio_cover_strength: float,
-) -> Tuple[List[str], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+) -> tuple[list[str], torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
     """Tokenize caption/lyric prompts and optional non-cover branch prompts."""
     actual_captions, actual_languages = self._extract_caption_and_language(parsed_metas, captions, vocal_languages)
 
@@ -489,8 +484,8 @@ def _prepare_target_latents_and_wavs(
     self,
     batch_size: int,
     target_wavs: torch.Tensor,
-    audio_code_hints: List[Optional[str]],
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, torch.Tensor]:
+    audio_code_hints: list[str | None],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, torch.Tensor]:
     """Encode target audio/codes to latents and pad batch tensors."""
     self._ensure_silence_latent_on_device()
 
@@ -502,8 +497,8 @@ def _prepare_target_latents_and_wavs(
             target_wavs = target_wavs.to(self.device)
 
         with self._load_model_context("vae"):
-            _cached_wav_ref: Optional[torch.Tensor] = None
-            _cached_latent: Optional[torch.Tensor] = None
+            _cached_wav_ref: torch.Tensor | None = None
+            _cached_latent: torch.Tensor | None = None
 
             for i in range(batch_size):
                 code_hint = audio_code_hints[i]
@@ -579,11 +574,11 @@ def _prepare_target_latents_and_wavs(
 # --- From batch_prep.py ---
 
 def _normalize_audio_code_hints(
-    self, audio_code_hints: Optional[Union[str, List[str]]], batch_size: int
-) -> List[Optional[str]]:
+    self, audio_code_hints: str | list[str] | None, batch_size: int
+) -> list[str | None]:
     """Normalize ``audio_code_hints`` into a batch-length list."""
     if audio_code_hints is None:
-        normalized: List[Optional[str]] = [None] * batch_size
+        normalized: list[str | None] = [None] * batch_size
     elif isinstance(audio_code_hints, str):
         normalized = [audio_code_hints] * batch_size
     elif len(audio_code_hints) == 1 and batch_size > 1:
@@ -598,10 +593,10 @@ def _normalize_audio_code_hints(
 
 def _normalize_instructions(
     self,
-    instructions: Optional[Union[str, List[str]]],
+    instructions: str | list[str] | None,
     batch_size: int,
-    default: Optional[str] = None,
-) -> List[str]:
+    default: str | None = None,
+) -> list[str]:
     """Normalize instructions into a batch-length list."""
     if instructions is None:
         default_instruction = default or DEFAULT_DIT_INSTRUCTION
@@ -618,7 +613,7 @@ def _normalize_instructions(
         return normalized
     return list(instructions)
 
-def _create_fallback_vocal_languages(self, batch_size: int) -> List[str]:
+def _create_fallback_vocal_languages(self, batch_size: int) -> list[str]:
     """Create default vocal-language values for missing inputs."""
     return ["en"] * batch_size
 
@@ -663,7 +658,7 @@ def prepare_batch_data(
     elif audio_duration is not None and float(audio_duration) > 0:
         calculated_duration = float(audio_duration)
 
-    metadata_dict: Dict[str, Union[str, int]] = self._build_metadata_dict(
+    metadata_dict: dict[str, str | int] = self._build_metadata_dict(
         bpm, key_scale, time_signature, calculated_duration
     )
     metas_batch = [metadata_dict.copy() for _ in range(actual_batch_size)]
@@ -671,7 +666,7 @@ def prepare_batch_data(
 
 # --- From audio_codes.py ---
 
-def _parse_audio_code_string(self, code_str: str) -> List[int]:
+def _parse_audio_code_string(self, code_str: str) -> list[int]:
     """Extract integer audio codes from tokens like ``<|audio_code_123|>``."""
     if not code_str:
         return []
@@ -698,7 +693,7 @@ def _parse_audio_code_string(self, code_str: str) -> List[int]:
         logger.debug(f"[_parse_audio_code_string] Failed to parse audio code string: {e}")
         return []
 
-def _decode_audio_codes_to_latents(self, code_str: str) -> Optional[torch.Tensor]:
+def _decode_audio_codes_to_latents(self, code_str: str) -> torch.Tensor | None:
     """Convert serialized audio-code string into 25Hz latents."""
     if self.model is None or not hasattr(self.model, "tokenizer") or not hasattr(self.model, "detokenizer"):
         return None

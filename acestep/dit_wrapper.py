@@ -8,14 +8,18 @@ method binding from consolidated handler modules.
 import os
 import sys
 import threading
-from typing import Optional
-
-import torch
 import warnings
 
+import torch
+
 from acestep.dit_modules import (
-    init, generation, conditioning, codec, utils,
+    codec,
+    conditioning,
+    generation,
+    init,
+    utils,
 )
+from acestep.env_utils import env_is_truthy
 
 warnings.filterwarnings("ignore")
 
@@ -218,11 +222,11 @@ class AceStepDiTWrapper:
         self.compiled = False
         self.current_offload_cost = 0.0
         self.disable_tqdm = (
-            os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes")
+            env_is_truthy("ACESTEP_DISABLE_TQDM")
             or not getattr(sys.stderr, 'isatty', lambda: False)()
         )
-        self.debug_stats = os.environ.get("ACESTEP_DEBUG_STATS", "").lower() in ("1", "true", "yes")
-        self._last_diffusion_per_step_sec: Optional[float] = None
+        self.debug_stats = env_is_truthy("ACESTEP_DEBUG_STATS")
+        self._last_diffusion_per_step_sec: float | None = None
         self._progress_estimates_lock = threading.Lock()
         self._progress_estimates = {"records": []}
         self._progress_estimates_path = os.path.join(

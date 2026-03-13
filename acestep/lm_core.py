@@ -1,26 +1,27 @@
 """Core LM methods (reference file for building lm_wrapper.py)."""
 
 import os
-import sys
-import traceback
-import time
 import random
+import sys
+import time
+import traceback
 import warnings
-from typing import Optional, Dict, Any, Tuple, List, Union
 from contextlib import contextmanager
-import yaml
+from typing import Any
+
 import torch
+import yaml
 from loguru import logger
-from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers.generation.streamers import BaseStreamer
-from transformers.generation.logits_process import (
-    LogitsProcessorList,
-    RepetitionPenaltyLogitsProcessor,
+from transformers import AutoTokenizer
+
+from acestep.constants import (
+    DEFAULT_LM_INSTRUCTION,
+    DURATION_MAX,
+    DURATION_MIN,
 )
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
-from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.env_utils import env_is_truthy
+from acestep.gpu_config import get_global_gpu_config, get_gpu_memory_gb, get_lm_gpu_memory_ratio
 
 VRAM_SAFE_FREE_GB = 2.0
 def _warn_if_prerelease_python():
@@ -38,7 +39,7 @@ STOP_REASONING_TAG = "</think>"
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
 
 
-def __init__(self, persistent_storage_path: Optional[str] = None):
+def __init__(self, persistent_storage_path: str | None = None):
     """Initialize LLMHandler with default values"""
     self.llm = None
     self.llm_tokenizer = None
@@ -48,7 +49,7 @@ def __init__(self, persistent_storage_path: Optional[str] = None):
     self.device = "cpu"
     self.dtype = torch.float32
     self.offload_to_cpu = False
-    self.disable_tqdm = os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes") or not (hasattr(sys.stderr, 'isatty') and sys.stderr.isatty())
+    self.disable_tqdm = env_is_truthy("ACESTEP_DISABLE_TQDM") or not (hasattr(sys.stderr, 'isatty') and sys.stderr.isatty())
 
     # HuggingFace Space persistent storage support
     if persistent_storage_path is None and self.IS_HUGGINGFACE_SPACE:
@@ -56,7 +57,7 @@ def __init__(self, persistent_storage_path: Optional[str] = None):
     self.persistent_storage_path = persistent_storage_path
 
     # Shared constrained decoding processor
-    self.constrained_processor: Optional[MetadataConstrainedLogitsProcessor] = None
+    self.constrained_processor: MetadataConstrainedLogitsProcessor | None = None
 
     # Shared HuggingFace model for perplexity calculation
     self._hf_model_for_scoring = None
@@ -123,7 +124,7 @@ def _get_checkpoint_dir(self) -> str:
     return os.path.join(project_root, "checkpoints")
 
 
-def get_available_5hz_lm_models(self, checkpoint_dir = None) -> List[str]:
+def get_available_5hz_lm_models(self, checkpoint_dir = None) -> list[str]:
     """Scan and return all model directory names starting with 'acestep-5Hz-lm-'"""
     if not checkpoint_dir:
         checkpoint_dir = self._get_checkpoint_dir()
@@ -139,7 +140,7 @@ def get_available_5hz_lm_models(self, checkpoint_dir = None) -> List[str]:
     return models
 
 
-def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float = 8, min_ratio: float = 0.2, max_ratio: float = 0.9) -> Tuple[float, bool]:
+def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float = 8, min_ratio: float = 0.2, max_ratio: float = 0.9) -> tuple[float, bool]:
     """
     Get GPU memory utilization ratio based on LM model size and available GPU memory.
 
@@ -192,9 +193,9 @@ def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float 
 
 def _compute_max_new_tokens(
     self,
-    target_duration: Optional[float],
+    target_duration: float | None,
     generation_phase: str,
-    fallback_max: Optional[int] = None,
+    fallback_max: int | None = None,
 ) -> int:
     """
     Compute max_new_tokens based on target duration and generation phase.
@@ -260,17 +261,17 @@ def _setup_constrained_processor(
     self,
     use_constrained_decoding: bool,
     constrained_decoding_debug: bool,
-    target_duration: Optional[float],
-    user_metadata: Optional[Dict[str, Optional[str]]],
+    target_duration: float | None,
+    user_metadata: dict[str, str | None] | None,
     stop_at_reasoning: bool,
     skip_genres: bool,
     skip_caption: bool,
     skip_language: bool,
     generation_phase: str,
     is_batch: bool = False,
-    metadata_temperature: Optional[float] = None,
-    codes_temperature: Optional[float] = None,
-) -> Optional[MetadataConstrainedLogitsProcessor]:
+    metadata_temperature: float | None = None,
+    codes_temperature: float | None = None,
+) -> MetadataConstrainedLogitsProcessor | None:
     """Setup and configure constrained processor for generation"""
     use_phase_temperatures = not is_batch and (metadata_temperature is not None or codes_temperature is not None)
 
@@ -338,7 +339,7 @@ def _build_unconditional_prompt(
         )
 
 
-def _normalize_batch_input(self, formatted_prompts: Union[str, List[str]]) -> Tuple[List[str], bool]:
+def _normalize_batch_input(self, formatted_prompts: str | list[str]) -> tuple[list[str], bool]:
     """Normalize batch input: convert single string to list and return (list, is_batch)"""
     is_batch = isinstance(formatted_prompts, list)
     if is_batch:
@@ -354,8 +355,8 @@ def initialize(
     backend: str = "vllm",
     device: str = "auto",
     offload_to_cpu: bool = False,
-    dtype: Optional[torch.dtype] = None,
-) -> Tuple[str, bool]:
+    dtype: torch.dtype | None = None,
+) -> tuple[str, bool]:
     """
     Initialize 5Hz LM model
 
@@ -563,7 +564,7 @@ def initialize(
         return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
 
 
-def has_all_metas(self, user_metadata: Optional[Dict[str, Optional[str]]]) -> bool:
+def has_all_metas(self, user_metadata: dict[str, str | None] | None) -> bool:
     """Check if all required metadata are present."""
     if user_metadata is None:
         return False
@@ -572,7 +573,7 @@ def has_all_metas(self, user_metadata: Optional[Dict[str, Optional[str]]]) -> bo
     return False
 
 
-def _format_metadata_as_cot(self, metadata: Dict[str, Any]) -> str:
+def _format_metadata_as_cot(self, metadata: dict[str, Any]) -> str:
     """
     Format parsed metadata as CoT text using YAML format (matching training format).
 
@@ -610,21 +611,21 @@ def generate_with_stop_condition(
     temperature: float = 0.85,
     cfg_scale: float = 1.0,
     negative_prompt: str = "NO USER INPUT",
-    top_k: Optional[int] = None,
-    top_p: Optional[float] = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
     repetition_penalty: float = 1.0,
     use_constrained_decoding: bool = True,
     constrained_decoding_debug: bool = False,
-    target_duration: Optional[float] = None,
-    user_metadata: Optional[Dict[str, Optional[str]]] = None,
+    target_duration: float | None = None,
+    user_metadata: dict[str, str | None] | None = None,
     use_cot_metas: bool = True,
     use_cot_caption: bool = True,
     use_cot_language: bool = True,
     use_cot_lyrics: bool = False,
-    batch_size: Optional[int] = None,
-    seeds: Optional[List[int]] = None,
+    batch_size: int | None = None,
+    seeds: list[int] | None = None,
     progress=None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Two-phase LM generation: CoT generation followed by audio codes generation.
 
     - infer_type='dit': Phase 1 only - generate CoT and return metas (no audio codes)
@@ -688,7 +689,7 @@ def generate_with_stop_condition(
 
     # ========== PHASE 1: CoT Generation ==========
     # Skip CoT if all metadata are user-provided OR caption is already formatted
-    progress(0.1, f"Phase 1: Generating CoT metadata (once for all items)...")
+    progress(0.1, "Phase 1: Generating CoT metadata (once for all items)...")
     if not has_all_metas and use_cot_metas:
         if is_batch:
             logger.info("Batch Phase 1: Generating CoT metadata (once for all items)...")
@@ -1094,11 +1095,11 @@ def build_formatted_prompt_with_cot(self, caption: str, lyrics: str, cot_text: s
 def generate_from_formatted_prompt(
     self,
     formatted_prompt: str,
-    cfg: Optional[Dict[str, Any]] = None,
+    cfg: dict[str, Any] | None = None,
     use_constrained_decoding: bool = True,
     constrained_decoding_debug: bool = False,
     stop_at_reasoning: bool = False,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """
     Generate raw LM text output from a pre-built formatted prompt.
 
@@ -1256,7 +1257,7 @@ def generate_from_formatted_prompt(
         return "", f"❌ Error generating from formatted prompt: {type(e).__name__}: {e or error_detail.splitlines()[-1]}"
 
 
-def parse_lm_output(self, output_text: str) -> Tuple[Dict[str, Any], str]:
+def parse_lm_output(self, output_text: str) -> tuple[dict[str, Any], str]:
     """
     Parse LM output to extract metadata and audio codes.
 
@@ -1326,7 +1327,7 @@ def parse_lm_output(self, output_text: str) -> Tuple[Dict[str, Any], str]:
                 if current_key == 'bpm':
                     try:
                         metadata['bpm'] = int(value.strip())
-                    except:
+                    except (ValueError, TypeError):
                         metadata['bpm'] = value.strip()
                 elif current_key == 'caption':
                     # Post-process caption to remove YAML multi-line formatting
@@ -1334,7 +1335,7 @@ def parse_lm_output(self, output_text: str) -> Tuple[Dict[str, Any], str]:
                 elif current_key == 'duration':
                     try:
                         metadata['duration'] = int(value.strip())
-                    except:
+                    except (ValueError, TypeError):
                         metadata['duration'] = value.strip()
                 elif current_key == 'genres':
                     metadata['genres'] = value.strip()
@@ -1424,7 +1425,7 @@ def _load_model_context(self):
         yield
     finally:
         # Offload to CPU
-        logger.info(f"Offloading LLM to CPU")
+        logger.info("Offloading LLM to CPU")
         start_time = time.time()
         if hasattr(model, "to"):
             model.to("cpu")

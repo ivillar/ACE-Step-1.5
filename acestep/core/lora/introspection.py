@@ -36,9 +36,9 @@ def collect_adapter_names(decoder: Any) -> list[str]:
                 except Exception:
                     pass
             if hasattr(obj, "adapters"):
-                _walk(getattr(obj, "adapters"))
+                _walk(obj.adapters)
             if hasattr(obj, "adapter_names"):
-                _walk(getattr(obj, "adapter_names"))
+                _walk(obj.adapter_names)
             if hasattr(obj, "to_dict") and callable(obj.to_dict):
                 try:
                     _walk(obj.to_dict())

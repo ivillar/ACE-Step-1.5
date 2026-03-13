@@ -5,19 +5,18 @@ Centralized GPU memory detection and adaptive configuration management
     Debug Mode:
         Set environment variable MAX_CUDA_VRAM to simulate different GPU memory sizes.
         Example: MAX_CUDA_VRAM=8 python acestep  # Simulates 8GB GPU
-        
+
         For MPS testing, use MAX_MPS_VRAM to simulate MPS memory.
         Example: MAX_MPS_VRAM=16 python acestep  # Simulates 16GB MPS
-    
+
     This is useful for testing GPU tier configurations on high-end hardware.
 """
 
 import os
 import sys
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Tuple
-from loguru import logger
 
+from loguru import logger
 
 # Environment variable for debugging/testing different GPU memory configurations
 DEBUG_MAX_CUDA_VRAM_ENV = "MAX_CUDA_VRAM"
@@ -39,7 +38,7 @@ PYTORCH_ROCM_INSTALL_URL = "https://download.pytorch.org/whl/rocm6.0"
 
 def is_mps_platform() -> bool:
     """Check if running on macOS with MPS (Apple Silicon) available.
-    
+
     This is the canonical check used across the codebase to apply
     Mac-specific configuration overrides (no compile, no quantization,
     mlx backend, no offload, etc.).
@@ -126,35 +125,35 @@ class GPUConfig:
     """GPU configuration based on available memory"""
     tier: str  # "tier1", "tier2", etc. or "unlimited"
     gpu_memory_gb: float
-    
+
     # Duration limits (in seconds)
     max_duration_with_lm: int  # When LM is initialized
     max_duration_without_lm: int  # When LM is not initialized
-    
+
     # Batch size limits
     max_batch_size_with_lm: int
     max_batch_size_without_lm: int
-    
+
     # LM configuration
     init_lm_default: bool  # Whether to initialize LM by default
-    available_lm_models: List[str]  # Available LM models for this tier
+    available_lm_models: list[str]  # Available LM models for this tier
     recommended_lm_model: str  # Recommended default LM model path (empty if LM not available)
-    
+
     # LM backend restriction
     # "all" = any backend, "pt_mlx_only" = only pt/mlx (no vllm), used for MPS (vllm requires CUDA)
     lm_backend_restriction: str  # "all" or "pt_mlx_only"
     recommended_backend: str  # Recommended default backend: "vllm", "pt", or "mlx"
-    
+
     # Offload defaults
     offload_to_cpu_default: bool  # Whether offload_to_cpu should be enabled by default
     offload_dit_to_cpu_default: bool  # Whether offload_dit_to_cpu should be enabled by default
-    
+
     # Quantization / compile defaults
     quantization_default: bool  # Whether INT8 quantization should be enabled by default
     compile_model_default: bool  # Whether torch.compile should be enabled by default
-    
+
     # LM memory allocation (GB) for each model size
-    lm_memory_gb: Dict[str, float]  # e.g., {"0.6B": 3, "1.7B": 8, "4B": 12}
+    lm_memory_gb: dict[str, float]  # e.g., {"0.6B": 3, "1.7B": 8, "4B": 12}
 
 
 # GPU tier configurations
@@ -316,14 +315,14 @@ GPU_TIER_CONFIGS["tier6"] = GPU_TIER_CONFIGS["tier6b"]
 def get_gpu_memory_gb() -> float:
     """
     Get GPU memory in GB. Returns 0 if no GPU is available.
-    
+
     Debug Mode:
         Set environment variable MAX_CUDA_VRAM to override the detected GPU memory.
         Example: MAX_CUDA_VRAM=8 python acestep  # Simulates 8GB GPU
-        
+
         For MPS testing, set MAX_MPS_VRAM to override MPS memory detection.
         Example: MAX_MPS_VRAM=16 python acestep  # Simulates 16GB MPS
-        
+
         This allows testing different GPU tier configurations on high-end hardware.
     """
     # Check for debug override first
@@ -375,7 +374,7 @@ def get_gpu_memory_gb() -> float:
             return simulated_gb
         except ValueError:
             logger.warning(f"Invalid {DEBUG_MAX_MPS_VRAM_ENV} value: {debug_mps_vram}, ignoring")
-    
+
     try:
         import torch
         if torch.cuda.is_available():
@@ -437,18 +436,18 @@ def get_gpu_memory_gb() -> float:
 def _log_gpu_diagnostic_info(torch_module):
     """
     Log diagnostic information when GPU is not detected to help users troubleshoot.
-    
+
     Args:
         torch_module: The torch module to inspect for build information
     """
     logger.warning("=" * 80)
     logger.warning("⚠️ GPU NOT DETECTED - DIAGNOSTIC INFORMATION")
     logger.warning("=" * 80)
-    
+
     # Check PyTorch build type
     is_rocm_build = hasattr(torch_module.version, 'hip') and torch_module.version.hip is not None
     is_cuda_build = hasattr(torch_module.version, 'cuda') and torch_module.version.cuda is not None
-    
+
     if is_rocm_build:
         logger.warning("✓ PyTorch ROCm build detected")
         logger.warning(f"  HIP version: {torch_module.version.hip}")
@@ -461,7 +460,7 @@ def _log_gpu_diagnostic_info(torch_module):
         logger.warning("  3. Missing or incorrect HSA_OVERRIDE_GFX_VERSION environment variable")
         logger.warning("  4. ROCm runtime libraries not in system path")
         logger.warning("")
-        
+
         # Check for common environment variables
         hsa_override = os.environ.get('HSA_OVERRIDE_GFX_VERSION')
         if hsa_override:
@@ -472,7 +471,7 @@ def _log_gpu_diagnostic_info(torch_module):
             logger.warning("       - RX 7900 XT/XTX, RX 9070 XT: set HSA_OVERRIDE_GFX_VERSION=11.0.0")
             logger.warning("       - RX 7800 XT, RX 7700 XT: set HSA_OVERRIDE_GFX_VERSION=11.0.1")
             logger.warning("       - RX 7600: set HSA_OVERRIDE_GFX_VERSION=11.0.2")
-        
+
         logger.warning("")
         logger.warning("Troubleshooting steps:")
         logger.warning("  1. Verify ROCm installation:")
@@ -483,7 +482,7 @@ def _log_gpu_diagnostic_info(torch_module):
         logger.warning("  4. On Windows: Use start_gradio_ui_rocm.bat which sets required env vars")
         logger.warning("  5. See docs/en/ACE-Step1.5-Rocm-Manual-Linux.md for Linux setup")
         logger.warning("  6. See requirements-rocm.txt for Windows ROCm SDK/PyTorch URLs, then: pip install -e .")
-        
+
     elif is_cuda_build:
         logger.warning("✓ PyTorch CUDA build detected")
         logger.warning(f"  CUDA version: {torch_module.version.cuda}")
@@ -501,7 +500,7 @@ def _log_gpu_diagnostic_info(torch_module):
         logger.warning("  2. Check CUDA version compatibility")
         logger.warning("  3. Reinstall PyTorch with CUDA support:")
         logger.warning(f"     pip install torch --index-url {PYTORCH_CUDA_INSTALL_URL}")
-        
+
     else:
         logger.warning("⚠️ PyTorch build type: CPU-only")
         logger.warning("")
@@ -515,17 +514,17 @@ def _log_gpu_diagnostic_info(torch_module):
         logger.warning(f"  Linux: pip install torch --index-url {PYTORCH_ROCM_INSTALL_URL}")
         logger.warning("")
         logger.warning("For more information, see README.md section 'AMD / ROCm GPUs'")
-    
+
     logger.warning("=" * 80)
 
 
 def get_gpu_tier(gpu_memory_gb: float) -> str:
     """
     Determine GPU tier based on available memory.
-    
+
     Args:
         gpu_memory_gb: GPU memory in GB
-        
+
     Returns:
         Tier string: "tier1", "tier2", "tier3", "tier4", "tier5", "tier6a", "tier6b", or "unlimited"
     """
@@ -553,13 +552,13 @@ def get_gpu_tier(gpu_memory_gb: float) -> str:
         return "unlimited"
 
 
-def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
+def get_gpu_config(gpu_memory_gb: float | None = None) -> GPUConfig:
     """
     Get GPU configuration based on detected or provided GPU memory.
-    
+
     On macOS with MPS (Apple Silicon), several overrides are applied
     automatically regardless of the tier selected by memory size:
-    
+
     - ``compile_model_default = False`` — ``torch.compile`` is not supported
       on MPS and would error or silently fall back to eager mode.
     - ``quantization_default = False`` — torchao INT8 quantization is
@@ -570,19 +569,19 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
     - ``offload_to_cpu_default = False`` — Apple Silicon uses unified memory;
       offloading to CPU provides no benefit and adds overhead.
     - ``offload_dit_to_cpu_default = False`` — same reason.
-    
+
     Args:
         gpu_memory_gb: GPU memory in GB. If None, will be auto-detected.
-        
+
     Returns:
         GPUConfig object with all configuration parameters
     """
     if gpu_memory_gb is None:
         gpu_memory_gb = get_gpu_memory_gb()
-    
+
     tier = get_gpu_tier(gpu_memory_gb)
     config = GPU_TIER_CONFIGS[tier]
-    
+
     # --- MPS (Apple Silicon) overrides ---
     _mps = is_mps_platform()
     if _mps:
@@ -591,7 +590,7 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
             "Applying Apple Silicon optimizations: no compile, no quantization, "
             "mlx backend, no CPU offload."
         )
-    
+
     return GPUConfig(
         tier=tier,
         gpu_memory_gb=gpu_memory_gb,
@@ -620,10 +619,10 @@ def get_gpu_config(gpu_memory_gb: Optional[float] = None) -> GPUConfig:
 def get_lm_model_size(model_path: str) -> str:
     """
     Extract LM model size from model path.
-    
+
     Args:
         model_path: Model path string (e.g., "acestep-5Hz-lm-0.6B", "acestep-5Hz-lm-0.6B-v4-fix")
-        
+
     Returns:
         Model size string: "0.6B", "1.7B", or "4B"
     """
@@ -638,17 +637,17 @@ def get_lm_model_size(model_path: str) -> str:
         return "0.6B"
 
 
-def is_lm_model_size_allowed(disk_model_name: str, tier_available_models: List[str]) -> bool:
+def is_lm_model_size_allowed(disk_model_name: str, tier_available_models: list[str]) -> bool:
     """
     Check if a disk LM model is allowed by the tier's available models list.
-    
+
     Uses size-based matching so that variants like "acestep-5Hz-lm-0.6B-v4-fix"
     are correctly matched against "acestep-5Hz-lm-0.6B" in the tier config.
-    
+
     Args:
         disk_model_name: Actual model directory name on disk (e.g., "acestep-5Hz-lm-0.6B-v4-fix")
         tier_available_models: List of tier-allowed model base names (e.g., ["acestep-5Hz-lm-0.6B"])
-        
+
     Returns:
         True if the model's size class is allowed by the tier
     """
@@ -661,67 +660,67 @@ def is_lm_model_size_allowed(disk_model_name: str, tier_available_models: List[s
     return False
 
 
-def find_best_lm_model_on_disk(recommended_model: str, disk_models: List[str]) -> Optional[str]:
+def find_best_lm_model_on_disk(recommended_model: str, disk_models: list[str]) -> str | None:
     """
     Find the best matching disk model for a recommended tier model.
-    
+
     If the exact recommended model exists on disk, return it.
     Otherwise, find a disk model with the same size class (e.g., "0.6B").
     Prefers models with version suffixes (e.g., "-v4-fix") as they are likely newer.
-    
+
     Args:
         recommended_model: Tier-recommended model name (e.g., "acestep-5Hz-lm-0.6B")
         disk_models: List of model names actually on disk
-        
+
     Returns:
         Best matching disk model name, or None if no match
     """
     if not recommended_model or not disk_models:
         return disk_models[0] if disk_models else None
-    
+
     # Exact match first
     if recommended_model in disk_models:
         return recommended_model
-    
+
     # Size-based match: find all disk models with same size
     target_size = get_lm_model_size(recommended_model)
     candidates = [m for m in disk_models if get_lm_model_size(m) == target_size]
-    
+
     if candidates:
         # Prefer the one with the longest name (likely has version suffix = newer)
         return max(candidates, key=len)
-    
+
     # No match for recommended size; return first available disk model
     return disk_models[0] if disk_models else None
 
 
-def get_lm_gpu_memory_ratio(model_path: str, total_gpu_memory_gb: float) -> Tuple[float, float]:
+def get_lm_gpu_memory_ratio(model_path: str, total_gpu_memory_gb: float) -> tuple[float, float]:
     """
     Calculate GPU memory utilization ratio for LM model.
-    
+
     This function now uses *actually free* VRAM (via torch.cuda.mem_get_info)
     when available, instead of computing the ratio purely from total VRAM.
     This is critical because DiT, VAE, and text encoder are already loaded
     when the LM initializes, so the "available" memory is much less than total.
-    
+
     Args:
         model_path: LM model path (e.g., "acestep-5Hz-lm-0.6B")
         total_gpu_memory_gb: Total GPU memory in GB (used as fallback)
-        
+
     Returns:
         Tuple of (gpu_memory_utilization_ratio, target_memory_gb)
     """
     model_size = get_lm_model_size(model_path)
-    
+
     # Use empirical LM VRAM measurements for target memory
     lm_info = LM_VRAM.get(model_size, LM_VRAM["0.6B"])
     lm_weights_gb = lm_info["weights"]
     lm_kv_cache_gb = lm_info["kv_cache_4k"]
-    
+
     # Total target = model weights + KV cache + small overhead
     target_gb = lm_weights_gb
     total_target_gb = lm_weights_gb + lm_kv_cache_gb + 0.3  # 0.3 GB overhead
-    
+
     # Try to use actual free memory for a more accurate ratio
     free_gb = None
     try:
@@ -730,7 +729,7 @@ def get_lm_gpu_memory_ratio(model_path: str, total_gpu_memory_gb: float) -> Tupl
             free_bytes, total_bytes = torch.cuda.mem_get_info()
             free_gb = free_bytes / (1024**3)
             actual_total_gb = total_bytes / (1024**3)
-            
+
             # If MAX_CUDA_VRAM is set, use the simulated values instead
             # because set_per_process_memory_fraction limits actual allocation
             debug_vram = os.environ.get(DEBUG_MAX_CUDA_VRAM_ENV)
@@ -746,26 +745,26 @@ def get_lm_gpu_memory_ratio(model_path: str, total_gpu_memory_gb: float) -> Tupl
                         actual_total_gb = simulated_gb
                 except (ValueError, TypeError):
                     pass
-            
+
             # The ratio is relative to total GPU memory (nano-vllm convention),
             # but we compute it so that the LM only claims what's actually free
             # minus a safety margin for DiT inference activations.
             # Reserve at least 1.5 GB for DiT inference activations
             dit_reserve_gb = 1.5
             usable_for_lm = max(0, free_gb - dit_reserve_gb - VRAM_SAFETY_MARGIN_GB)
-            
+
             # Cap to what the LM actually needs
             usable_for_lm = min(usable_for_lm, total_target_gb)
-            
+
             # Convert to ratio of total GPU memory
             # nano-vllm uses: target_total_usage = total * gpu_memory_utilization
             # We want: (total * ratio) = current_usage + usable_for_lm
             current_usage_gb = actual_total_gb - free_gb
             desired_total_usage = current_usage_gb + usable_for_lm
             ratio = desired_total_usage / actual_total_gb
-            
+
             ratio = min(0.9, max(0.1, ratio))
-            
+
             logger.info(
                 f"[get_lm_gpu_memory_ratio] model={model_size}, free={free_gb:.2f}GB, "
                 f"current_usage={current_usage_gb:.2f}GB, lm_target={total_target_gb:.2f}GB, "
@@ -774,27 +773,27 @@ def get_lm_gpu_memory_ratio(model_path: str, total_gpu_memory_gb: float) -> Tupl
             return ratio, target_gb
     except Exception as e:
         logger.warning(f"[get_lm_gpu_memory_ratio] Failed to query free VRAM: {e}, using fallback")
-    
+
     # Fallback: compute ratio from total VRAM (less accurate)
     if total_gpu_memory_gb >= 24:
         ratio = min(0.9, max(0.2, total_target_gb / total_gpu_memory_gb))
     else:
         ratio = min(0.9, max(0.1, total_target_gb / total_gpu_memory_gb))
-    
+
     return ratio, target_gb
 
 
 def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GPUConfig:
     """
     Compute GPU configuration based on what actually fits in VRAM.
-    
+
     This is a VRAM-budget-based approach: instead of hard-coded tier boundaries,
     we calculate how much memory each component needs and determine what fits.
-    
+
     Args:
         total_vram_gb: Total GPU VRAM in GB
         dit_type: "turbo" or "base" (affects inference VRAM due to CFG)
-        
+
     Returns:
         GPUConfig with parameters that fit within the VRAM budget
     """
@@ -808,17 +807,17 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
         + MODEL_VRAM["silence_latent"]
         + VRAM_SAFETY_MARGIN_GB
     )
-    
+
     available = total_vram_gb - base_usage
-    
+
     if available <= 0:
         # Not enough for even base models - CPU offload required
         return get_gpu_config(total_vram_gb)
-    
+
     # Determine which LM models fit
     available_lm_models = []
     lm_memory_gb = {}
-    
+
     for size_key in ["0.6B", "1.7B", "4B"]:
         lm_info = LM_VRAM[size_key]
         lm_total = lm_info["weights"] + lm_info["kv_cache_4k"]
@@ -828,14 +827,14 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
             model_name = f"acestep-5Hz-lm-{size_key}"
             available_lm_models.append(model_name)
             lm_memory_gb[size_key] = lm_info["weights"] + lm_info["kv_cache_4k"]
-    
+
     # Determine max batch sizes
     inference_per_batch = DIT_INFERENCE_VRAM_PER_BATCH.get(dit_type, 0.8)
-    
+
     # Without LM: all available VRAM goes to inference
     max_batch_no_lm = max(1, int(available / inference_per_batch))
     max_batch_no_lm = min(max_batch_no_lm, 8)  # Cap at 8
-    
+
     # With LM: subtract the largest available LM from available
     if available_lm_models:
         largest_lm_size = list(lm_memory_gb.keys())[-1]
@@ -845,7 +844,7 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
         max_batch_with_lm = min(max_batch_with_lm, 8)
     else:
         max_batch_with_lm = max_batch_no_lm
-    
+
     # Determine duration limits based on available VRAM
     # Longer durations need more VRAM for latents
     if total_vram_gb >= 24:
@@ -866,10 +865,10 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
     else:
         max_dur_lm = 180
         max_dur_no_lm = 180
-    
+
     tier = get_gpu_tier(total_vram_gb)
     tier_config = GPU_TIER_CONFIGS.get(tier, {})
-    
+
     return GPUConfig(
         tier=tier,
         gpu_memory_gb=total_vram_gb,
@@ -893,22 +892,22 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
 def get_effective_free_vram_gb(device_index: int = 0) -> float:
     """
     Get the effective free VRAM in GB, accounting for per-process memory fraction.
-    
+
     torch.cuda.mem_get_info() reports *device-level* free memory, which ignores
     the per-process cap set by torch.cuda.set_per_process_memory_fraction().
-    
+
     This function computes:
         effective_free = min(device_free, process_allowed - process_allocated)
-    
+
     where process_allowed = total_memory * memory_fraction.
-    
+
     Returns 0 if no GPU is available or on error.
     """
     try:
         import torch
         if hasattr(torch, 'cuda') and torch.cuda.is_available():
             device_free_bytes, total_bytes = torch.cuda.mem_get_info(device_index)
-            
+
             # Check if a per-process memory fraction has been set
             # We detect this by checking MAX_CUDA_VRAM env var (our simulation mechanism)
             debug_vram = os.environ.get(DEBUG_MAX_CUDA_VRAM_ENV)
@@ -929,7 +928,7 @@ def get_effective_free_vram_gb(device_index: int = 0) -> float:
                         return max(0.0, effective_free / (1024 ** 3))
                 except (ValueError, TypeError):
                     pass
-            
+
             return device_free_bytes / (1024 ** 3)
 
         elif hasattr(torch, 'xpu') and torch.xpu.is_available():
@@ -941,7 +940,7 @@ def get_effective_free_vram_gb(device_index: int = 0) -> float:
                     return device_free_bytes / (1024 ** 3)
                 except Exception:
                     pass
-            
+
             # Fallback for older IPEX or if mem_get_info fails: total - reserved
             try:
                 total_bytes = torch.xpu.get_device_properties(device_index).total_memory
@@ -949,7 +948,7 @@ def get_effective_free_vram_gb(device_index: int = 0) -> float:
                 return max(0.0, (total_bytes - reserved_bytes) / (1024 ** 3))
             except Exception:
                 return 0.0
-        
+
         return 0.0
     except Exception:
         return 0.0
@@ -959,7 +958,7 @@ def get_available_vram_gb() -> float:
     """
     Get currently available (free) GPU VRAM in GB.
     Returns 0 if no GPU is available or on error.
-    
+
     This is an alias for get_effective_free_vram_gb() that accounts for
     per-process memory fraction caps.
     """
@@ -975,14 +974,14 @@ def estimate_inference_vram(
 ) -> float:
     """
     Estimate total VRAM needed for a generation request.
-    
+
     Args:
         batch_size: Number of samples to generate
         duration_s: Audio duration in seconds
         dit_type: "turbo" or "base"
         with_lm: Whether LM is loaded
         lm_size: LM model size if with_lm is True
-        
+
     Returns:
         Estimated VRAM in GB
     """
@@ -994,19 +993,19 @@ def estimate_inference_vram(
         + MODEL_VRAM["text_encoder"]
         + MODEL_VRAM["cuda_context"]
     )
-    
+
     # DiT inference activations (scales with batch size and duration)
     per_batch = DIT_INFERENCE_VRAM_PER_BATCH.get(dit_type, 0.8)
     # Duration scaling: longer audio = more latent frames = more memory
     duration_factor = max(1.0, duration_s / 60.0)  # Normalize to 60s baseline
     inference = per_batch * batch_size * duration_factor
-    
+
     # LM memory
     lm_mem = 0.0
     if with_lm and lm_size in LM_VRAM:
         lm_info = LM_VRAM[lm_size]
         lm_mem = lm_info["weights"] + lm_info["kv_cache_4k"]
-    
+
     return base + inference + lm_mem + VRAM_SAFETY_MARGIN_GB
 
 
@@ -1014,20 +1013,20 @@ def check_duration_limit(
     duration: float,
     gpu_config: GPUConfig,
     lm_initialized: bool
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Check if requested duration is within limits for current GPU configuration.
-    
+
     Args:
         duration: Requested duration in seconds
         gpu_config: Current GPU configuration
         lm_initialized: Whether LM is initialized
-        
+
     Returns:
         Tuple of (is_valid, warning_message)
     """
     max_duration = gpu_config.max_duration_with_lm if lm_initialized else gpu_config.max_duration_without_lm
-    
+
     if duration > max_duration:
         warning_msg = (
             f"⚠️ Requested duration ({duration:.0f}s) exceeds the limit for your GPU "
@@ -1036,7 +1035,7 @@ def check_duration_limit(
             f"Duration will be clamped to {max_duration}s."
         )
         return False, warning_msg
-    
+
     return True, ""
 
 
@@ -1044,20 +1043,20 @@ def check_batch_size_limit(
     batch_size: int,
     gpu_config: GPUConfig,
     lm_initialized: bool
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Check if requested batch size is within limits for current GPU configuration.
-    
+
     Args:
         batch_size: Requested batch size
         gpu_config: Current GPU configuration
         lm_initialized: Whether LM is initialized
-        
+
     Returns:
         Tuple of (is_valid, warning_message)
     """
     max_batch_size = gpu_config.max_batch_size_with_lm if lm_initialized else gpu_config.max_batch_size_without_lm
-    
+
     if batch_size > max_batch_size:
         warning_msg = (
             f"⚠️ Requested batch size ({batch_size}) exceeds the limit for your GPU "
@@ -1066,18 +1065,18 @@ def check_batch_size_limit(
             f"Batch size will be clamped to {max_batch_size}."
         )
         return False, warning_msg
-    
+
     return True, ""
 
 
-def is_lm_model_supported(model_path: str, gpu_config: GPUConfig) -> Tuple[bool, str]:
+def is_lm_model_supported(model_path: str, gpu_config: GPUConfig) -> tuple[bool, str]:
     """
     Check if the specified LM model is supported for current GPU configuration.
-    
+
     Args:
         model_path: LM model path
         gpu_config: Current GPU configuration
-        
+
     Returns:
         Tuple of (is_supported, warning_message)
     """
@@ -1086,40 +1085,40 @@ def is_lm_model_supported(model_path: str, gpu_config: GPUConfig) -> Tuple[bool,
             f"⚠️ Your GPU ({gpu_config.gpu_memory_gb:.1f}GB) does not have enough memory "
             f"to run any LM model. Please disable LM initialization."
         )
-    
+
     model_size = get_lm_model_size(model_path)
-    
+
     # Check if model size is in available models
     for available_model in gpu_config.available_lm_models:
         if model_size in available_model:
             return True, ""
-    
+
     return False, (
         f"⚠️ LM model {model_path} ({model_size}) is not supported for your GPU "
         f"({gpu_config.gpu_memory_gb:.1f}GB). Available models: {', '.join(gpu_config.available_lm_models)}"
     )
 
 
-def get_recommended_lm_model(gpu_config: GPUConfig) -> Optional[str]:
+def get_recommended_lm_model(gpu_config: GPUConfig) -> str | None:
     """
     Get recommended LM model for current GPU configuration.
-    
+
     Args:
         gpu_config: Current GPU configuration
-        
+
     Returns:
         Recommended LM model path, or None if LM is not supported
     """
     if not gpu_config.available_lm_models:
         return None
-    
+
     # Return the largest available model (last in the list)
     return gpu_config.available_lm_models[-1]
 
 
 def print_gpu_config_info(gpu_config: GPUConfig):
     """Print GPU configuration information for debugging."""
-    logger.info(f"GPU Configuration:")
+    logger.info("GPU Configuration:")
     logger.info(f"  - GPU Memory: {gpu_config.gpu_memory_gb:.1f} GB")
     logger.info(f"  - Tier: {gpu_config.tier}")
     logger.info(f"  - Max Duration (with LM): {gpu_config.max_duration_with_lm}s ({gpu_config.max_duration_with_lm // 60} min)")
@@ -1149,7 +1148,7 @@ GPU_TIER_CHOICES = list(GPU_TIER_LABELS.items())  # [(value, label), ...]
 def get_gpu_device_name() -> str:
     """
     Get the GPU device name string.
-    
+
     Returns:
         Human-readable GPU name, e.g. "NVIDIA GeForce RTX 4060 Ti",
         "Apple M2 Pro (MPS)", "CPU only", etc.
@@ -1178,29 +1177,29 @@ def get_gpu_device_name() -> str:
 def get_gpu_config_for_tier(tier: str) -> GPUConfig:
     """
     Create a GPUConfig for a specific tier, applying platform overrides.
-    
+
     This is used when the user manually selects a different tier in the UI.
     The actual gpu_memory_gb is preserved from the real hardware detection,
     but all tier-based settings come from the selected tier's config.
-    
+
     Args:
         tier: Tier key, e.g. "tier3", "tier6a", "unlimited"
-        
+
     Returns:
         GPUConfig with the selected tier's settings
     """
     if tier not in GPU_TIER_CONFIGS:
         logger.warning(f"Unknown tier '{tier}', falling back to auto-detected config")
         return get_gpu_config()
-    
+
     # Keep the real GPU memory for informational purposes
     real_gpu_memory = get_gpu_memory_gb()
     config = GPU_TIER_CONFIGS[tier]
-    
+
     _mps = is_mps_platform()
     if _mps:
         logger.info(f"Manual tier override to {tier} on macOS MPS — applying Apple Silicon overrides")
-    
+
     return GPUConfig(
         tier=tier,
         gpu_memory_gb=real_gpu_memory,
@@ -1222,7 +1221,7 @@ def get_gpu_config_for_tier(tier: str) -> GPUConfig:
 
 
 # Global GPU config instance (initialized lazily)
-_global_gpu_config: Optional[GPUConfig] = None
+_global_gpu_config: GPUConfig | None = None
 
 
 def get_global_gpu_config() -> GPUConfig:

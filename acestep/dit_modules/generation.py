@@ -1,21 +1,17 @@
 """Consolidated handler functions – generation module."""
 
-import traceback
-from typing import Any, Dict, List, Optional, Union
-from loguru import logger
-from acestep.constants import DEFAULT_DIT_INSTRUCTION
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-import torch
-from acestep.constants import TASK_INSTRUCTIONS
-from typing import Any, Dict, List, Optional, Sequence
-import os
-import time
-from typing import Any, Dict, Optional, Tuple
-from acestep.gpu_config import get_effective_free_vram_gb
-from typing import Any, Dict
 import random
-from typing import Any, Dict, List, Optional, Tuple
-from typing import Any, Dict, Optional
+import time
+import traceback
+from collections.abc import Callable, Sequence
+from typing import Any
+
+import torch
+from loguru import logger
+
+from acestep.constants import DEFAULT_DIT_INSTRUCTION, TASK_INSTRUCTIONS
+from acestep.env_utils import env_is_truthy
+from acestep.gpu_config import get_effective_free_vram_gb
 from acestep.models.mlx.dit_generate import mlx_generate_diffusion
 
 # Module-level code from service_generate_request.py
@@ -28,21 +24,21 @@ def generate_music(
     self,
     captions: str,
     lyrics: str,
-    bpm: Optional[int] = None,
+    bpm: int | None = None,
     key_scale: str = "",
     time_signature: str = "",
     vocal_language: str = "en",
     inference_steps: int = 8,
     guidance_scale: float = 7.0,
     use_random_seed: bool = True,
-    seed: Optional[Union[str, float, int]] = -1,
+    seed: str | float | int | None = -1,
     reference_audio=None,
-    audio_duration: Optional[float] = None,
-    batch_size: Optional[int] = None,
+    audio_duration: float | None = None,
+    batch_size: int | None = None,
     src_audio=None,
-    audio_code_string: Union[str, List[str]] = "",
+    audio_code_string: str | list[str] = "",
     repainting_start: float = 0.0,
-    repainting_end: Optional[float] = None,
+    repainting_end: float | None = None,
     instruction: str = DEFAULT_DIT_INSTRUCTION,
     audio_cover_strength: float = 1.0,
     cover_noise_strength: float = 0.0,
@@ -54,11 +50,11 @@ def generate_music(
     infer_method: str = "ode",
     noise_schedule: str = "linear",
     use_tiled_decode: bool = True,
-    timesteps: Optional[List[float]] = None,
+    timesteps: list[float] | None = None,
     latent_shift: float = 0.0,
     latent_rescale: float = 1.0,
     progress=None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate audio from text/reference inputs and return response payload.
 
     Args:
@@ -200,7 +196,7 @@ def generate_music(
 
 def _resolve_generate_music_progress(
     self,
-    progress: Optional[Callable[..., Any]],
+    progress: Callable[..., Any] | None,
 ) -> Callable[..., Any]:
     """Return a callable progress callback, defaulting to no-op."""
     if progress is not None:
@@ -213,7 +209,7 @@ def _resolve_generate_music_progress(
 
     return _progress
 
-def _validate_generate_music_readiness(self) -> Optional[Dict[str, Any]]:
+def _validate_generate_music_readiness(self) -> dict[str, Any] | None:
     """Return standardized error payload when model components are unavailable."""
     if self.model is None or self.vae is None or self.text_tokenizer is None or self.text_encoder is None:
         return {
@@ -225,7 +221,7 @@ def _validate_generate_music_readiness(self) -> Optional[Dict[str, Any]]:
         }
     return None
 
-def _has_non_empty_audio_codes(self, value: Union[str, List[str]]) -> bool:
+def _has_non_empty_audio_codes(self, value: str | list[str]) -> bool:
     """Return ``True`` when at least one non-empty audio-code string is present."""
     if isinstance(value, list):
         return any((x or "").strip() for x in value)
@@ -234,9 +230,9 @@ def _has_non_empty_audio_codes(self, value: Union[str, List[str]]) -> bool:
 def _resolve_generate_music_task(
     self,
     task_type: str,
-    audio_code_string: Union[str, List[str]],
+    audio_code_string: str | list[str],
     instruction: str,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Auto-switch text2music to cover task when audio codes are provided."""
     if task_type == "text2music" and self._has_non_empty_audio_codes(audio_code_string):
         return "cover", TASK_INSTRUCTIONS["cover"]
@@ -244,12 +240,12 @@ def _resolve_generate_music_task(
 
 def _prepare_generate_music_runtime(
     self,
-    batch_size: Optional[int],
-    audio_duration: Optional[float],
-    repainting_end: Optional[float],
-    seed: Optional[Union[str, float, int]],
+    batch_size: int | None,
+    audio_duration: float | None,
+    repainting_end: float | None,
+    seed: str | float | int | None,
     use_random_seed: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Prepare runtime batch/seed/duration values for generation."""
     self.current_offload_cost = 0.0
     actual_batch_size = batch_size if batch_size is not None else self.batch_size
@@ -272,12 +268,12 @@ def _prepare_generate_music_runtime(
 
 def _prepare_reference_and_source_audio(
     self,
-    reference_audio: Optional[str],
-    src_audio: Optional[str],
-    audio_code_string: Union[str, List[str]],
+    reference_audio: str | None,
+    src_audio: str | None,
+    audio_code_string: str | list[str],
     actual_batch_size: int,
     task_type: str,
-) -> Tuple[Optional[List[List[torch.Tensor]]], Optional[torch.Tensor], Optional[Dict[str, Any]]]:
+) -> tuple[list[list[torch.Tensor]] | None, torch.Tensor | None, dict[str, Any] | None]:
     """Prepare reference/source audio tensors and return early error payload when invalid."""
     if reference_audio is not None:
         logger.info("[generate_music] Processing reference audio...")
@@ -325,20 +321,20 @@ def _prepare_reference_and_source_audio(
 def _prepare_generate_music_service_inputs(
     self,
     actual_batch_size: int,
-    processed_src_audio: Optional[torch.Tensor],
-    audio_duration: Optional[float],
+    processed_src_audio: torch.Tensor | None,
+    audio_duration: float | None,
     captions: str,
     lyrics: str,
     vocal_language: str,
     instruction: str,
-    bpm: Optional[int],
+    bpm: int | None,
     key_scale: str,
     time_signature: str,
     task_type: str,
-    audio_code_string: Union[str, List[str]],
+    audio_code_string: str | list[str],
     repainting_start: float,
-    repainting_end: Optional[float],
-) -> Dict[str, Any]:
+    repainting_end: float | None,
+) -> dict[str, Any]:
     """Prepare service inputs (batch text, repaint spans, and optional code hints)."""
     captions_batch, instructions_batch, lyrics_batch, vocal_languages_batch, metas_batch = self.prepare_batch_data(
         actual_batch_size,
@@ -391,13 +387,13 @@ def _run_generate_music_service_with_progress(
     self,
     progress: Any,
     actual_batch_size: int,
-    audio_duration: Optional[float],
+    audio_duration: float | None,
     inference_steps: int,
-    timesteps: Optional[Sequence[float]],
-    service_inputs: Dict[str, Any],
-    refer_audios: Optional[List[Any]],
+    timesteps: Sequence[float] | None,
+    service_inputs: dict[str, Any],
+    refer_audios: list[Any] | None,
     guidance_scale: float,
-    actual_seed_list: Optional[List[int]],
+    actual_seed_list: list[int] | None,
     audio_cover_strength: float,
     cover_noise_strength: float,
     use_adg: bool,
@@ -406,7 +402,7 @@ def _run_generate_music_service_with_progress(
     shift: float,
     infer_method: str,
     noise_schedule: str = "linear",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Invoke ``service_generate`` while maintaining background progress estimation."""
     infer_steps_for_progress = len(timesteps) if timesteps else inference_steps
     progress_desc = f"Generating music (batch size: {actual_batch_size})..."
@@ -459,13 +455,13 @@ def _run_generate_music_service_with_progress(
 
 def _prepare_generate_music_decode_state(
     self,
-    outputs: Dict[str, Any],
+    outputs: dict[str, Any],
     infer_steps_for_progress: int,
     actual_batch_size: int,
-    audio_duration: Optional[float],
+    audio_duration: float | None,
     latent_shift: float,
     latent_rescale: float,
-) -> Tuple[torch.Tensor, Dict[str, Any]]:
+) -> tuple[torch.Tensor, dict[str, Any]]:
     """Collect decode inputs and validate raw diffusion latents.
 
     Args:
@@ -544,8 +540,8 @@ def _decode_generate_music_pred_latents(
     pred_latents: torch.Tensor,
     progress: Any,
     use_tiled_decode: bool,
-    time_costs: Dict[str, Any],
-) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
+    time_costs: dict[str, Any],
+) -> tuple[torch.Tensor, torch.Tensor, dict[str, Any]]:
     """Decode predicted latents and update decode timing metrics.
 
     Args:
@@ -577,7 +573,7 @@ def _decode_generate_music_pred_latents(
             vae_cpu = False
             vae_device = None
             if not using_mlx_vae:
-                vae_cpu = os.environ.get("ACESTEP_VAE_ON_CPU", "0").lower() in ("1", "true", "yes")
+                vae_cpu = env_is_truthy("ACESTEP_VAE_ON_CPU", "0")
                 if not vae_cpu:
                     if self.device == "mps":
                         logger.info(
@@ -648,14 +644,14 @@ def _decode_generate_music_pred_latents(
 
 def _build_generate_music_success_payload(
     self,
-    outputs: Dict[str, Any],
+    outputs: dict[str, Any],
     pred_wavs,
     pred_latents_cpu,
-    time_costs: Dict[str, Any],
+    time_costs: dict[str, Any],
     seed_value_for_ui: int,
     actual_batch_size: int,
     progress: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Assemble final success response from decoded tensors and model outputs.
 
     Args:
@@ -733,31 +729,31 @@ def _build_generate_music_success_payload(
 @torch.inference_mode()
 def service_generate(
     self,
-    captions: Union[str, List[str]],
-    lyrics: Union[str, List[str]],
-    keys: Optional[Union[str, List[str]]] = None,
-    target_wavs: Optional[torch.Tensor] = None,
-    refer_audios: Optional[List[List[torch.Tensor]]] = None,
-    metas: Optional[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any]]]]] = None,
-    vocal_languages: Optional[Union[str, List[str]]] = None,
+    captions: str | list[str],
+    lyrics: str | list[str],
+    keys: str | list[str] | None = None,
+    target_wavs: torch.Tensor | None = None,
+    refer_audios: list[list[torch.Tensor]] | None = None,
+    metas: str | dict[str, Any] | list[str | dict[str, Any]] | None = None,
+    vocal_languages: str | list[str] | None = None,
     infer_steps: int = 60,
     guidance_scale: float = 7.0,
-    seed: Optional[Union[int, List[int]]] = None,
+    seed: int | list[int] | None = None,
     return_intermediate: bool = False,
-    repainting_start: Optional[Union[float, List[float]]] = None,
-    repainting_end: Optional[Union[float, List[float]]] = None,
-    instructions: Optional[Union[str, List[str]]] = None,
+    repainting_start: float | list[float] | None = None,
+    repainting_end: float | list[float] | None = None,
+    instructions: str | list[str] | None = None,
     audio_cover_strength: float = 1.0,
     cover_noise_strength: float = 0.0,
     use_adg: bool = False,
     cfg_interval_start: float = 0.0,
     cfg_interval_end: float = 1.0,
     shift: float = 1.0,
-    audio_code_hints: Optional[Union[str, List[str]]] = None,
+    audio_code_hints: str | list[str] | None = None,
     infer_method: str = "ode",
-    timesteps: Optional[List[float]] = None,
+    timesteps: list[float] | None = None,
     noise_schedule: str = "linear",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate music latents and metadata from text/audio conditioning inputs.
 
     Args:
@@ -864,9 +860,9 @@ def service_generate(
 
 def _build_service_seed_list(
     self,
-    seed: Optional[Union[int, List[int]]],
+    seed: int | list[int] | None,
     batch_size: int,
-) -> Optional[List[int]]:
+) -> list[int] | None:
     """Normalize ``seed`` into a per-item list or ``None`` for random sampling."""
     if seed is None:
         return None
@@ -882,19 +878,19 @@ def _build_service_seed_list(
 
 def _normalize_service_generate_inputs(
     self,
-    captions: Union[str, List[str]],
-    lyrics: Union[str, List[str]],
-    keys: Optional[Union[str, List[str]]],
-    metas: Optional[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any]]]]],
-    vocal_languages: Optional[Union[str, List[str]]],
-    repainting_start: Optional[Union[float, List[float]]],
-    repainting_end: Optional[Union[float, List[float]]],
-    instructions: Optional[Union[str, List[str]]],
-    audio_code_hints: Optional[Union[str, List[str]]],
+    captions: str | list[str],
+    lyrics: str | list[str],
+    keys: str | list[str] | None,
+    metas: str | dict[str, Any] | list[str | dict[str, Any]] | None,
+    vocal_languages: str | list[str] | None,
+    repainting_start: float | list[float] | None,
+    repainting_end: float | list[float] | None,
+    instructions: str | list[str] | None,
+    audio_code_hints: str | list[str] | None,
     infer_steps: int,
-    seed: Optional[Union[int, List[int]]],
+    seed: int | list[int] | None,
     return_intermediate: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Normalize scalar/list generation inputs and clamp turbo infer steps."""
     if self.config.is_turbo and infer_steps > 8:
         logger.warning(
@@ -979,7 +975,7 @@ def _normalize_service_generate_inputs(
 
 # --- From service_generate_execute.py ---
 
-def _unpack_service_processed_data(self, processed_data: Tuple[Any, ...]) -> Dict[str, Any]:
+def _unpack_service_processed_data(self, processed_data: tuple[Any, ...]) -> dict[str, Any]:
     """Convert batch preprocessing tuple into a keyed payload."""
     (
         keys,
@@ -1022,7 +1018,7 @@ def _unpack_service_processed_data(self, processed_data: Tuple[Any, ...]) -> Dic
         "non_cover_text_attention_masks": non_cover_text_attention_masks,
     }
 
-def _resolve_service_seed_param(self, seed_list: Optional[List[int]]) -> Any:
+def _resolve_service_seed_param(self, seed_list: list[int] | None) -> Any:
     """Return model seed parameter: per-item seed list or random single seed."""
     if seed_list is not None:
         return seed_list
@@ -1030,7 +1026,7 @@ def _resolve_service_seed_param(self, seed_list: Optional[List[int]]) -> Any:
 
 def _build_service_generate_kwargs(
     self,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     seed_param: Any,
     infer_steps: int,
     guidance_scale: float,
@@ -1041,9 +1037,9 @@ def _build_service_generate_kwargs(
     cfg_interval_start: float,
     cfg_interval_end: float,
     shift: float,
-    timesteps: Optional[List[float]],
+    timesteps: list[float] | None,
     noise_schedule: str = "linear",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build kwargs passed to model generation backends."""
     kwargs = {
         "text_hidden_states": payload["text_hidden_states"],
@@ -1077,13 +1073,13 @@ def _build_service_generate_kwargs(
 
 def _execute_service_generate_diffusion(
     self,
-    payload: Dict[str, Any],
-    generate_kwargs: Dict[str, Any],
+    payload: dict[str, Any],
+    generate_kwargs: dict[str, Any],
     seed_param: Any,
     infer_method: str,
     shift: float,
     audio_cover_strength: float,
-) -> Tuple[Dict[str, Any], torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[dict[str, Any], torch.Tensor, torch.Tensor, torch.Tensor]:
     """Execute condition preparation and diffusion using MLX or PyTorch backend."""
     dit_backend = (
         "MLX (native)" if (self.use_mlx_dit and self.mlx_decoder is not None) else f"PyTorch ({self.device})"
@@ -1178,14 +1174,14 @@ def _execute_service_generate_diffusion(
 
 def _attach_service_generate_outputs(
     self,
-    outputs: Dict[str, Any],
-    payload: Dict[str, Any],
-    batch: Dict[str, Any],
+    outputs: dict[str, Any],
+    payload: dict[str, Any],
+    batch: dict[str, Any],
     encoder_hidden_states: torch.Tensor,
     encoder_attention_mask: torch.Tensor,
     context_latents: torch.Tensor,
     return_intermediate: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Attach intermediate tensors required by downstream consumers."""
     outputs["spans"] = payload["spans"]
     if not return_intermediate:
@@ -1213,9 +1209,9 @@ def _mlx_run_diffusion(
     infer_method: str = "ode",
     shift: float = 3.0,
     timesteps=None,
-    infer_steps: Optional[int] = None,
+    infer_steps: int | None = None,
     guidance_scale: float = 1.0,
-    null_condition_emb: Optional[torch.Tensor] = None,
+    null_condition_emb: torch.Tensor | None = None,
     cfg_interval_start: float = 0.0,
     cfg_interval_end: float = 1.0,
     audio_cover_strength: float = 1.0,
@@ -1224,7 +1220,7 @@ def _mlx_run_diffusion(
     context_latents_non_cover=None,
     disable_tqdm: bool = False,
     noise_schedule: str = "linear",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the MLX diffusion loop and return generated latents.
 
     Args:
@@ -1251,7 +1247,6 @@ def _mlx_run_diffusion(
     Returns:
         Dict[str, Any]: ``{"target_latents": torch.Tensor, "time_costs": dict}``.
     """
-    import numpy as np
 
     _ = encoder_attention_mask, encoder_attention_mask_non_cover
 

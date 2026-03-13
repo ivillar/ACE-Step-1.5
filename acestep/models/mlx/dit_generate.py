@@ -5,7 +5,6 @@
 
 import logging
 import time
-from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from tqdm import tqdm
@@ -35,9 +34,9 @@ SHIFT_TIMESTEPS = {
 
 def get_timestep_schedule(
     shift: float = 3.0,
-    timesteps: Optional[list] = None,
-    infer_steps: Optional[int] = None,
-) -> List[float]:
+    timesteps: list | None = None,
+    infer_steps: int | None = None,
+) -> list[float]:
     """Compute the timestep schedule for diffusion sampling.
 
     When ``infer_steps`` is provided and ``timesteps`` is None, a continuous
@@ -89,7 +88,7 @@ def _mlx_apg_forward(
     pred_cond,
     pred_uncond,
     guidance_scale: float,
-    momentum_state: Optional[Dict] = None,
+    momentum_state: dict | None = None,
     norm_threshold: float = 2.5,
 ):
     """APG (Adaptive Projected Guidance) in pure MLX — mirrors the PyTorch ``apg_forward``.
@@ -122,23 +121,23 @@ def mlx_generate_diffusion(
     mlx_decoder,
     encoder_hidden_states_np: np.ndarray,
     context_latents_np: np.ndarray,
-    src_latents_shape: Tuple[int, ...],
-    seed: Optional[Union[int, List[int]]] = None,
+    src_latents_shape: tuple[int, ...],
+    seed: int | list[int] | None = None,
     infer_method: str = "ode",
     shift: float = 3.0,
-    timesteps: Optional[list] = None,
-    infer_steps: Optional[int] = None,
+    timesteps: list | None = None,
+    infer_steps: int | None = None,
     guidance_scale: float = 1.0,
-    null_condition_emb_np: Optional[np.ndarray] = None,
+    null_condition_emb_np: np.ndarray | None = None,
     cfg_interval_start: float = 0.0,
     cfg_interval_end: float = 1.0,
     audio_cover_strength: float = 1.0,
-    encoder_hidden_states_non_cover_np: Optional[np.ndarray] = None,
-    context_latents_non_cover_np: Optional[np.ndarray] = None,
+    encoder_hidden_states_non_cover_np: np.ndarray | None = None,
+    context_latents_non_cover_np: np.ndarray | None = None,
     compile_model: bool = False,
     disable_tqdm: bool = False,
     noise_schedule: str = "linear",
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Run the complete MLX diffusion loop with optional CFG guidance.
 
     This is the core generation function.  It accepts numpy arrays (converted
@@ -169,6 +168,7 @@ def mlx_generate_diffusion(
         Dict with ``"target_latents"`` (numpy) and ``"time_costs"`` dict.
     """
     import mlx.core as mx
+
     from .dit_model import MLXCrossAttentionCache
 
     time_costs = {}
@@ -196,7 +196,7 @@ def mlx_generate_diffusion(
             enc_hs_nc = mx.concatenate([enc_hs_nc, null_expanded_nc], axis=0)
         if ctx_nc is not None:
             ctx_nc = mx.concatenate([ctx_nc, ctx_nc], axis=0)
-    momentum_state: Optional[Dict] = {} if do_cfg else None
+    momentum_state: dict | None = {} if do_cfg else None
 
     # ---- Noise preparation ----
     if seed is None:

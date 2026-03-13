@@ -12,14 +12,13 @@ clean data.
 """
 
 import math
-from typing import List
 
 
 def _compute_exponential_sigmas(
     num_steps: int,
     sigma_min: float = 0.3,
     sigma_max: float = 500.0,
-) -> List[float]:
+) -> list[float]:
     """Exponential sigma schedule matching HF CosineDPMSolverMultistepScheduler.
 
     Log-linear in sigma: sigmas from sigma_max down to sigma_min (high to low).
@@ -44,7 +43,7 @@ def _cosine_hf_schedule(
     sigma_schedule: str = "exponential",
     sigma_min: float = 0.3,
     sigma_max: float = 500.0,
-) -> List[float]:
+) -> list[float]:
     """Build a t-schedule from HF-style exponential sigma schedule.
 
     Uses the same exponential sigma schedule as Hugging Face's
@@ -68,7 +67,7 @@ def _cosine_hf_schedule(
         )
     sigmas = _compute_exponential_sigmas(num_steps, sigma_min, sigma_max)
     sigma_range = sigma_max - sigma_min
-    t_list: List[float] = []
+    t_list: list[float] = []
     for sigma_val in sigmas:
         t_val = (
             (sigma_val - sigma_min) / sigma_range
@@ -82,7 +81,7 @@ def _cosine_hf_schedule(
     return t_list
 
 
-def linear_schedule(num_steps: int, shift: float = 1.0) -> List[float]:
+def linear_schedule(num_steps: int, shift: float = 1.0) -> list[float]:
     """Uniform linspace schedule with optional shift transformation.
 
     Args:
@@ -98,7 +97,7 @@ def linear_schedule(num_steps: int, shift: float = 1.0) -> List[float]:
     return raw
 
 
-def cosine_schedule(num_steps: int, shift: float = 1.0) -> List[float]:
+def cosine_schedule(num_steps: int, shift: float = 1.0) -> list[float]:
     """Cosine schedule for rectified-flow diffusion sampling.
 
     Uses the exponential sigma schedule of Hugging Face's
@@ -123,7 +122,7 @@ def cosine_schedule(num_steps: int, shift: float = 1.0) -> List[float]:
     )
 
 
-def logsnr_schedule(num_steps: int, sigma_max: float = 1.0) -> List[float]:
+def logsnr_schedule(num_steps: int, sigma_max: float = 1.0) -> list[float]:
     """Log-SNR–uniform schedule (used by Stable Audio Open for RF models).
 
     Spaces timesteps uniformly in log-SNR space between ``sigma_max`` and 0,

@@ -5,7 +5,7 @@ Consolidates duplicated logic used by both the CLI LM pipeline
 and the inference API (``acestep/inference.py``).
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from acestep.cli.parsing import parse_number
 
@@ -15,8 +15,8 @@ def build_user_metadata(
     keyscale: Any,
     timesignature: Any,
     duration: Any,
-    extras: Optional[dict[str, Any]] = None,
-) -> Optional[dict[str, Any]]:
+    extras: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Build a user-metadata dict from generation parameters.
 
     Only includes fields that carry a meaningful, positive value.
@@ -60,7 +60,7 @@ def build_user_metadata(
     return meta or None
 
 
-def format_seed_string(seeds: Optional[int | list[int]]) -> str:
+def format_seed_string(seeds: int | list[int] | None) -> str:
     """Convert a seeds value (None, int, or list[int]) to a comma-separated string.
 
     Returns:
@@ -106,7 +106,7 @@ def safe_parse_metadata_value(
     *,
     as_int: bool = False,
     as_float: bool = False,
-) -> Optional[float]:
+) -> float | None:
     """Parse a positive numeric value from ``metas[key]``.
 
     Returns ``None`` when the key is missing, falsy, or not a positive

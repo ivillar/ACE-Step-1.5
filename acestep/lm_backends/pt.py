@@ -1,26 +1,19 @@
 """PyTorch backend for 5Hz LM generation."""
 
-import os
-import sys
 import traceback
-import time
-import random
-import warnings
-from typing import Optional, Dict, Any, Tuple, List, Union
-from contextlib import contextmanager
-import yaml
+from typing import Any
+
 import torch
 from loguru import logger
 from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers.generation.streamers import BaseStreamer
+from transformers import AutoModelForCausalLM
 from transformers.generation.logits_process import (
     LogitsProcessorList,
     RepetitionPenaltyLogitsProcessor,
 )
+from transformers.generation.streamers import BaseStreamer
+
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
-from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
-from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
 
 
 def _build_logits_processor(self, repetition_penalty: float) -> LogitsProcessorList:
@@ -31,7 +24,7 @@ def _build_logits_processor(self, repetition_penalty: float) -> LogitsProcessorL
     return logits_processor
 
 
-def _load_pytorch_model(self, model_path: str, device: str) -> Tuple[bool, str]:
+def _load_pytorch_model(self, model_path: str, device: str) -> tuple[bool, str]:
     """Load PyTorch model from path and return (success, status_message)"""
     try:
         self.llm = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
@@ -49,7 +42,7 @@ def _load_pytorch_model(self, model_path: str, device: str) -> Tuple[bool, str]:
         return False, f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
 
 
-def _apply_top_k_filter(self, logits: torch.Tensor, top_k: Optional[int]) -> torch.Tensor:
+def _apply_top_k_filter(self, logits: torch.Tensor, top_k: int | None) -> torch.Tensor:
     """Apply top-k filtering to logits"""
     if top_k is not None and top_k > 0:
         indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
@@ -57,7 +50,7 @@ def _apply_top_k_filter(self, logits: torch.Tensor, top_k: Optional[int]) -> tor
     return logits
 
 
-def _apply_top_p_filter(self, logits: torch.Tensor, top_p: Optional[float]) -> torch.Tensor:
+def _apply_top_p_filter(self, logits: torch.Tensor, top_p: float | None) -> torch.Tensor:
     """Apply top-p (nucleus) filtering to logits"""
     if top_p is not None and 0.0 < top_p < 1.0:
         sorted_logits, sorted_indices = torch.sort(logits, descending=True)
@@ -86,7 +79,7 @@ def _sample_tokens(self, logits: torch.Tensor, temperature: float) -> torch.Tens
         return torch.argmax(logits, dim=-1)
 
 
-def _check_eos_token(self, tokens: torch.Tensor, eos_token_id: int, pad_token_id: Optional[int]) -> bool:
+def _check_eos_token(self, tokens: torch.Tensor, eos_token_id: int, pad_token_id: int | None) -> bool:
     """Check if any token in the batch is EOS or pad token"""
     if torch.any(tokens == eos_token_id):
         return True
@@ -96,7 +89,7 @@ def _check_eos_token(self, tokens: torch.Tensor, eos_token_id: int, pad_token_id
     return False
 
 
-def _update_constrained_processor_state(self, constrained_processor: Optional[MetadataConstrainedLogitsProcessor], tokens: torch.Tensor):
+def _update_constrained_processor_state(self, constrained_processor: MetadataConstrainedLogitsProcessor | None, tokens: torch.Tensor):
     """Update constrained processor state with generated tokens"""
     if constrained_processor is not None:
         for b in range(tokens.shape[0]):
@@ -107,8 +100,8 @@ def _forward_pass(
     self,
     model: Any,
     generated_ids: torch.Tensor,
-    model_kwargs: Dict[str, Any],
-    past_key_values: Optional[Any],
+    model_kwargs: dict[str, Any],
+    past_key_values: Any | None,
     use_cache: bool,
 ) -> Any:
     """Perform forward pass with KV cache support"""
@@ -134,13 +127,13 @@ def _run_pt_single(
     temperature: float,
     cfg_scale: float,
     negative_prompt: str,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     use_constrained_decoding: bool,
     constrained_decoding_debug: bool,
-    target_duration: Optional[float],
-    user_metadata: Optional[Dict[str, Optional[str]]],
+    target_duration: float | None,
+    user_metadata: dict[str, str | None] | None,
     stop_at_reasoning: bool,
     skip_genres: bool,
     skip_caption: bool,
@@ -291,17 +284,17 @@ def _run_pt_single(
 
 def _run_pt(
     self,
-    formatted_prompts: Union[str, List[str]],
+    formatted_prompts: str | list[str],
     temperature: float,
     cfg_scale: float,
     negative_prompt: str,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     use_constrained_decoding: bool = True,
     constrained_decoding_debug: bool = False,
-    target_duration: Optional[float] = None,
-    user_metadata: Optional[Dict[str, Optional[str]]] = None,
+    target_duration: float | None = None,
+    user_metadata: dict[str, str | None] | None = None,
     stop_at_reasoning: bool = False,
     skip_genres: bool = True,
     skip_caption: bool = False,
@@ -310,8 +303,8 @@ def _run_pt(
     caption: str = "",
     lyrics: str = "",
     cot_text: str = "",
-    seeds: Optional[List[int]] = None,
-) -> Union[str, List[str]]:
+    seeds: list[int] | None = None,
+) -> str | list[str]:
     """
     Unified PyTorch generation function supporting both single and batch modes.
     Accepts either a single formatted prompt (str) or a list of formatted prompts (List[str]).
@@ -393,15 +386,15 @@ def _run_pt(
 def _generate_with_constrained_decoding(
     self,
     input_ids: torch.Tensor,
-    attention_mask: Optional[torch.Tensor],
+    attention_mask: torch.Tensor | None,
     max_new_tokens: int,
     temperature: float,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     pad_token_id: int,
-    streamer: Optional[BaseStreamer],
-    constrained_processor: Optional[MetadataConstrainedLogitsProcessor] = None,
+    streamer: BaseStreamer | None,
+    constrained_processor: MetadataConstrainedLogitsProcessor | None = None,
 ) -> torch.Tensor:
     """
     Custom generation loop with constrained decoding support (non-CFG).
@@ -433,7 +426,7 @@ def _generate_with_constrained_decoding(
     logits_processor = self._build_logits_processor(repetition_penalty)
 
     with torch.inference_mode():
-        for step in tqdm(range(max_new_tokens), desc="LLM Constrained Decoding", unit="token", disable=self.disable_tqdm):
+        for _step in tqdm(range(max_new_tokens), desc="LLM Constrained Decoding", unit="token", disable=self.disable_tqdm):
             # Forward pass
             outputs = self._forward_pass(model, generated_ids, model_kwargs, past_key_values, use_cache)
 
@@ -487,16 +480,16 @@ def _generate_with_constrained_decoding(
 def _generate_with_cfg_custom(
     self,
     batch_input_ids: torch.Tensor,
-    batch_attention_mask: Optional[torch.Tensor],
+    batch_attention_mask: torch.Tensor | None,
     max_new_tokens: int,
     temperature: float,
     cfg_scale: float,
-    top_k: Optional[int],
-    top_p: Optional[float],
+    top_k: int | None,
+    top_p: float | None,
     repetition_penalty: float,
     pad_token_id: int,
-    streamer: Optional[BaseStreamer],
-    constrained_processor: Optional[MetadataConstrainedLogitsProcessor] = None,
+    streamer: BaseStreamer | None,
+    constrained_processor: MetadataConstrainedLogitsProcessor | None = None,
 ) -> torch.Tensor:
     """
     Custom CFG generation loop that:
@@ -539,7 +532,7 @@ def _generate_with_cfg_custom(
     logits_processor = self._build_logits_processor(repetition_penalty)
 
     with torch.inference_mode():
-        for step in tqdm(range(max_new_tokens), desc="LLM CFG Generation", unit="token", disable=self.disable_tqdm):
+        for _step in tqdm(range(max_new_tokens), desc="LLM CFG Generation", unit="token", disable=self.disable_tqdm):
             # Forward pass for the entire batch (conditional + unconditional)
             outputs = self._forward_pass(model, generated_ids, model_kwargs, past_key_values, use_cache)
 

@@ -6,23 +6,20 @@ It supports automatic downloading when models are not found locally,
 with intelligent fallback between download sources.
 """
 
-import os
-import sys
+import argparse
 import hashlib
 import shutil
-import argparse
-from typing import Optional, List, Dict, Tuple
+import sys
 from pathlib import Path
 
 from loguru import logger
-
 
 # =============================================================================
 # Model Code File Sync (GitHub repo -> checkpoint directories)
 # =============================================================================
 
 # Mapping from checkpoint directory name to source model variant in acestep/models/
-_CHECKPOINT_TO_VARIANT: Dict[str, str] = {
+_CHECKPOINT_TO_VARIANT: dict[str, str] = {
     "acestep-v15-turbo": "turbo",
     "acestep-v15-sft": "sft",
     "acestep-v15-base": "base",
@@ -53,7 +50,7 @@ def _file_hash(filepath: Path) -> str:
     return h.hexdigest()
 
 
-def _check_code_mismatch(model_name: str, checkpoints_dir) -> List[str]:
+def _check_code_mismatch(model_name: str, checkpoints_dir) -> list[str]:
     """
     Compare .py files in acestep/models/{variant}/ with those in the checkpoint directory.
 
@@ -89,7 +86,7 @@ def _check_code_mismatch(model_name: str, checkpoints_dir) -> List[str]:
     return mismatched
 
 
-def _sync_model_code_files(model_name: str, checkpoints_dir) -> List[str]:
+def _sync_model_code_files(model_name: str, checkpoints_dir) -> list[str]:
     """
     Copy .py files from acestep/models/{variant}/ into the checkpoint directory,
     overwriting the HuggingFace-downloaded versions.
@@ -149,7 +146,7 @@ def _can_access_google(timeout: float = 3.0) -> bool:
         sock.settimeout(timeout)
         sock.connect(("www.google.com", 443))
         return True
-    except (socket.timeout, socket.error, OSError):
+    except (TimeoutError, OSError):
         return False
     finally:
         sock.close()
@@ -158,7 +155,7 @@ def _can_access_google(timeout: float = 3.0) -> bool:
 def _download_from_huggingface_internal(
     repo_id: str,
     local_dir: Path,
-    token: Optional[str] = None,
+    token: str | None = None,
 ) -> None:
     """
     Internal function to download from HuggingFace Hub.
@@ -210,9 +207,9 @@ def _download_from_modelscope_internal(
 def _smart_download(
     repo_id: str,
     local_dir: Path,
-    token: Optional[str] = None,
-    prefer_source: Optional[str] = None,
-) -> Tuple[bool, str]:
+    token: str | None = None,
+    prefer_source: str | None = None,
+) -> tuple[bool, str]:
     """
     Smart download with automatic fallback between HuggingFace and ModelScope.
 
@@ -283,7 +280,7 @@ def _smart_download(
 MAIN_MODEL_REPO = "ACE-Step/Ace-Step1.5"
 
 # Sub-models that can be downloaded separately into the checkpoints directory
-SUBMODEL_REGISTRY: Dict[str, str] = {
+SUBMODEL_REGISTRY: dict[str, str] = {
     # LM models
     "acestep-5Hz-lm-0.6B": "ACE-Step/acestep-5Hz-lm-0.6B",
     "acestep-5Hz-lm-4B": "ACE-Step/acestep-5Hz-lm-4B",
@@ -313,17 +310,17 @@ def get_project_root() -> Path:
     return current_file.parent.parent
 
 
-def get_checkpoints_dir(custom_dir: Optional[str] = None) -> Path:
+def get_checkpoints_dir(custom_dir: str | None = None) -> Path:
     """Get the checkpoints directory path."""
     if custom_dir:
         return Path(custom_dir)
     return get_project_root() / "checkpoints"
 
 
-def check_main_model_exists(checkpoints_dir: Optional[Path] = None) -> bool:
+def check_main_model_exists(checkpoints_dir: Path | None = None) -> bool:
     """
     Check if the main model components exist in the checkpoints directory.
-    
+
     Returns:
         True if all main model components exist, False otherwise.
     """
@@ -339,14 +336,14 @@ def check_main_model_exists(checkpoints_dir: Optional[Path] = None) -> bool:
     return True
 
 
-def check_model_exists(model_name: str, checkpoints_dir: Optional[Path] = None) -> bool:
+def check_model_exists(model_name: str, checkpoints_dir: Path | None = None) -> bool:
     """
     Check if a specific model exists in the checkpoints directory.
-    
+
     Args:
         model_name: Name of the model to check
         checkpoints_dir: Custom checkpoints directory (optional)
-    
+
     Returns:
         True if the model exists, False otherwise.
     """
@@ -362,10 +359,10 @@ def check_model_exists(model_name: str, checkpoints_dir: Optional[Path] = None) 
     return model_path.exists()
 
 
-def list_available_models() -> Dict[str, str]:
+def list_available_models() -> dict[str, str]:
     """
     List all available models for download.
-    
+
     Returns:
         Dictionary mapping local names to HuggingFace repo IDs.
     """
@@ -377,11 +374,11 @@ def list_available_models() -> Dict[str, str]:
 
 
 def download_main_model(
-    checkpoints_dir: Optional[Path] = None,
+    checkpoints_dir: Path | None = None,
     force: bool = False,
-    token: Optional[str] = None,
-    prefer_source: Optional[str] = None,
-) -> Tuple[bool, str]:
+    token: str | None = None,
+    prefer_source: str | None = None,
+) -> tuple[bool, str]:
     """
     Download the main ACE-Step model from HuggingFace or ModelScope.
 
@@ -429,11 +426,11 @@ def download_main_model(
 
 def download_submodel(
     model_name: str,
-    checkpoints_dir: Optional[Path] = None,
+    checkpoints_dir: Path | None = None,
     force: bool = False,
-    token: Optional[str] = None,
-    prefer_source: Optional[str] = None,
-) -> Tuple[bool, str]:
+    token: str | None = None,
+    prefer_source: str | None = None,
+) -> tuple[bool, str]:
     """
     Download a specific sub-model from HuggingFace or ModelScope.
 
@@ -480,18 +477,18 @@ def download_submodel(
 
 
 def download_all_models(
-    checkpoints_dir: Optional[Path] = None,
+    checkpoints_dir: Path | None = None,
     force: bool = False,
-    token: Optional[str] = None,
-) -> Tuple[bool, List[str]]:
+    token: str | None = None,
+) -> tuple[bool, list[str]]:
     """
     Download all available models.
-    
+
     Args:
         checkpoints_dir: Custom checkpoints directory (optional)
         force: Force re-download even if models exist
         token: HuggingFace token for private repos (optional)
-    
+
     Returns:
         Tuple of (all_success, list of messages)
     """
@@ -502,28 +499,28 @@ def download_all_models(
 
     messages = []
     all_success = True
-    
+
     # Download main model first
     success, msg = download_main_model(checkpoints_dir, force, token)
     messages.append(msg)
     if not success:
         all_success = False
-    
+
     # Download all sub-models
     for model_name in SUBMODEL_REGISTRY:
         success, msg = download_submodel(model_name, checkpoints_dir, force, token)
         messages.append(msg)
         if not success:
             all_success = False
-    
+
     return all_success, messages
 
 
 def ensure_main_model(
-    checkpoints_dir: Optional[Path] = None,
-    token: Optional[str] = None,
-    prefer_source: Optional[str] = None,
-) -> Tuple[bool, str]:
+    checkpoints_dir: Path | None = None,
+    token: str | None = None,
+    prefer_source: str | None = None,
+) -> tuple[bool, str]:
     """
     Ensure the main model is available, downloading if necessary.
 
@@ -552,11 +549,11 @@ def ensure_main_model(
 
 
 def ensure_lm_model(
-    model_name: Optional[str] = None,
-    checkpoints_dir: Optional[Path] = None,
-    token: Optional[str] = None,
-    prefer_source: Optional[str] = None,
-) -> Tuple[bool, str]:
+    model_name: str | None = None,
+    checkpoints_dir: Path | None = None,
+    token: str | None = None,
+    prefer_source: str | None = None,
+) -> tuple[bool, str]:
     """
     Ensure an LM model is available, downloading if necessary.
 
@@ -599,10 +596,10 @@ def ensure_lm_model(
 
 def ensure_dit_model(
     model_name: str,
-    checkpoints_dir: Optional[Path] = None,
-    token: Optional[str] = None,
-    prefer_source: Optional[str] = None,
-) -> Tuple[bool, str]:
+    checkpoints_dir: Path | None = None,
+    token: str | None = None,
+    prefer_source: str | None = None,
+) -> tuple[bool, str]:
     """
     Ensure a DiT model is available, downloading if necessary.
 
@@ -684,7 +681,7 @@ Alternative using huggingface-cli:
   huggingface-cli download ACE-Step/acestep-5Hz-lm-0.6B --local-dir ./checkpoints/acestep-5Hz-lm-0.6B
         """
     )
-    
+
     parser.add_argument(
         "--model", "-m",
         type=str,
@@ -722,25 +719,25 @@ Alternative using huggingface-cli:
         action="store_true",
         help="Skip downloading the main model (only download specified sub-model)"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Handle --list
     if args.list:
         print_model_list()
         return 0
-    
+
     # Get checkpoints directory
     checkpoints_dir = get_checkpoints_dir(args.dir) if args.dir else get_checkpoints_dir()
     print(f"Checkpoints directory: {checkpoints_dir}")
-    
+
     # Handle --all
     if args.all:
         success, messages = download_all_models(checkpoints_dir, args.force, args.token)
         for msg in messages:
             print(msg)
         return 0 if success else 1
-    
+
     # Handle --model
     if args.model:
         if args.model == "main":
@@ -753,27 +750,27 @@ Alternative using huggingface-cli:
                 print(main_msg)
                 if not main_success:
                     return 1
-            
+
             success, msg = download_submodel(args.model, checkpoints_dir, args.force, args.token)
         else:
             print(f"Unknown model: {args.model}")
             print("Use --list to see available models")
             return 1
-        
+
         print(msg)
         return 0 if success else 1
-    
+
     # Default: download main model (includes default LM 1.7B)
     print("Downloading main model (includes vae, text encoder, DiT, and LM 1.7B)...")
-    
+
     # Download main model
     success, msg = download_main_model(checkpoints_dir, args.force, args.token)
     print(msg)
-    
+
     if success:
         print("\nDownload complete!")
         print(f"Models are available at: {checkpoints_dir}")
-    
+
     return 0 if success else 1
 
 
