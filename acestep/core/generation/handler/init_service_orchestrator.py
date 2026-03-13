@@ -23,6 +23,7 @@ class InitServiceOrchestratorMixin:
         offload_dit_to_cpu: bool = False,
         quantization: Optional[str] = None,
         prefer_source: Optional[str] = None,
+        checkpoint_dir: Optional[str] = None,
         use_mlx_dit: bool = True,
     ) -> Tuple[str, bool]:
         """Initialize model artifacts and runtime backends for generation.
@@ -56,7 +57,8 @@ class InitServiceOrchestratorMixin:
             )
 
             base_root = project_root or self._get_project_root()
-            checkpoint_dir = os.path.join(base_root, "checkpoints")
+            if not checkpoint_dir:
+                checkpoint_dir = os.path.join(base_root, "checkpoints")
             checkpoint_path = Path(checkpoint_dir)
 
             precheck_failure = self._ensure_models_present(

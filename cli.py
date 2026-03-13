@@ -41,6 +41,9 @@ def main() -> None:
 
     with open('config_defaults.pkl', 'rb') as f:
         config_defaults = pickle.load(f)
+        
+        
+    args.checkpoint_dir = '/workspace/checkpoints'
 
     dit_handler = AceStepHandler()
     llm_handler = LLMHandler()

@@ -132,9 +132,10 @@ class LLMHandler:
         project_root = os.path.dirname(os.path.dirname(current_file))
         return os.path.join(project_root, "checkpoints")
 
-    def get_available_5hz_lm_models(self) -> List[str]:
+    def get_available_5hz_lm_models(self, checkpoint_dir = None) -> List[str]:
         """Scan and return all model directory names starting with 'acestep-5Hz-lm-'"""
-        checkpoint_dir = self._get_checkpoint_dir()
+        if not checkpoint_dir:
+            checkpoint_dir = self._get_checkpoint_dir()
 
         models = []
         if os.path.exists(checkpoint_dir):

@@ -24,15 +24,16 @@ class InitServiceCatalogMixin:
             return [checkpoint_dir]
         return []
 
-    def get_available_acestep_v15_models(self) -> List[str]:
+    def get_available_acestep_v15_models(self, checkpoints_dir=None) -> List[str]:
         """Scan and return all model directory names starting with ``acestep-v15-``."""
         project_root = self._get_project_root()
-        checkpoint_dir = os.path.join(project_root, "checkpoints")
+        if not checkpoints_dir: 
+            checkpoints_dir = os.path.join(project_root, "checkpoints")
 
         models = []
-        if os.path.exists(checkpoint_dir):
-            for item in os.listdir(checkpoint_dir):
-                item_path = os.path.join(checkpoint_dir, item)
+        if os.path.exists(checkpoints_dir):
+            for item in os.listdir(checkpoints_dir):
+                item_path = os.path.join(checkpoints_dir, item)
                 if os.path.isdir(item_path) and item.startswith("acestep-v15-"):
                     models.append(item)
 

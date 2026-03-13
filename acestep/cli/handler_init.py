@@ -22,8 +22,7 @@ from acestep.cli.defaults import BASE_ONLY_TASKS, SKIP_LM_TASKS
 
 def resolve_config_path(args, parser, dit_handler: AceStepHandler) -> None:
     """Auto-select or validate `args.config_path`, downloading models if needed."""
-    checkpoints_dir = get_checkpoints_dir()
-
+    checkpoints_dir = args.checkpoint_dir
     if args.config_path is None:
         _auto_select_config_path(args, parser, dit_handler, checkpoints_dir)
 
@@ -38,7 +37,7 @@ def resolve_config_path(args, parser, dit_handler: AceStepHandler) -> None:
 
 def _auto_select_config_path(args, parser, dit_handler, checkpoints_dir) -> None:
     """Discover or download a suitable DiT config when none was specified."""
-    available = dit_handler.get_available_acestep_v15_models()
+    available = dit_handler.get_available_acestep_v15_models(checkpoints_dir)
     if args.task_type in BASE_ONLY_TASKS and available:
         available = [m for m in available if "base" in m.lower()]
 
@@ -121,6 +120,7 @@ def initialize_dit(
         compile_model=compile_model,
         offload_to_cpu=args.offload_to_cpu,
         offload_dit_to_cpu=args.offload_dit_to_cpu,
+        checkpoint_dir=args.checkpoint_dir
     )
 
 
@@ -147,10 +147,10 @@ def initialize_lm(
     device: str,
 ) -> None:
     """Resolve the LM model path, download if needed, and initialize the handler."""
-    checkpoints_dir = get_checkpoints_dir()
+    checkpoints_dir = get_checkpoints_dir(args.checkpoint_dir)
 
     if args.lm_model_path is None:
-        available = llm_handler.get_available_5hz_lm_models()
+        available = llm_handler.get_available_5hz_lm_models(checkpoints_dir)
         if available:
             args.lm_model_path = available[0]
             print(f"Using default LM model: {args.lm_model_path}")
