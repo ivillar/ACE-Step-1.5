@@ -31,9 +31,9 @@ def _bootstrap():
 
 _bootstrap()
 
-from acestep.handler import AceStepHandler  # noqa: E402
+from acestep.dit_wrapper import AceStepDiTWrapper  # noqa: E402
 from acestep.inference import GenerationConfig, GenerationParams, generate_music  # noqa: E402
-from acestep.llm_inference import LLMHandler  # noqa: E402
+from acestep.lm_wrapper import AceStepLMWrapper  # noqa: E402
 from acestep.model_downloader import (  # noqa: E402
     SUBMODEL_REGISTRY, check_main_model_exists, check_model_exists,
     ensure_dit_model, ensure_lm_model, ensure_main_model, get_checkpoints_dir,
@@ -68,8 +68,8 @@ def main() -> None:
     args.checkpoint_dir = '/workspace/checkpoints'
 
     # 2. Create handlers
-    dit_handler = AceStepHandler()
-    llm_handler = LLMHandler()
+    dit_handler = AceStepDiTWrapper()
+    llm_handler = AceStepLMWrapper()
 
     # 3. Resolve config path + download models
     _resolve_config_path(args, parser, dit_handler)
