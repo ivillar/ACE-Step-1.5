@@ -1,7 +1,7 @@
 """AceStepLMWrapper — thin model wrapper for 5Hz LM generation.
 
-Replaces LLMHandler. All functionality preserved via method binding
-from extracted modules (lm_core, lm_backends/*, lm_tasks).
+All functionality preserved via method binding from extracted
+modules (lm_core, lm_backends/*, lm_tasks).
 """
 
 import sys
@@ -115,5 +115,3 @@ class AceStepLMWrapper:
         self._mlx_model_path = None
 
 
-# Backward compatibility alias
-LLMHandler = AceStepLMWrapper

@@ -10,6 +10,7 @@ import torch
 from loguru import logger
 from tqdm import tqdm
 
+from acestep.constants import SAMPLE_RATE
 from acestep.env_utils import env_is_truthy
 from acestep.gpu_config import get_gpu_memory_gb
 
@@ -52,9 +53,9 @@ def tiled_encode(self, audio, chunk_size=None, overlap=None, offload_latent_to_c
             mem_gb = self._get_effective_mps_memory_gb()
             if mem_gb is not None:
                 gpu_memory = mem_gb
-        chunk_size = 48000 * 15 if gpu_memory <= 8 else 48000 * 30
+        chunk_size = SAMPLE_RATE * 15 if gpu_memory <= 8 else SAMPLE_RATE * 30
     if overlap is None:
-        overlap = 48000 * 2
+        overlap = SAMPLE_RATE * 2
 
     input_was_2d = audio.dim() == 2
     if input_was_2d:
@@ -609,8 +610,8 @@ def _mlx_vae_encode_sample(self, audio_torch):
     batch_size = audio_nlc.shape[0]
     sample_frames = audio_nlc.shape[1]
 
-    mlx_encode_chunk = 48000 * 30
-    mlx_encode_overlap = 48000 * 2
+    mlx_encode_chunk = SAMPLE_RATE * 30
+    mlx_encode_overlap = SAMPLE_RATE * 2
     if sample_frames <= mlx_encode_chunk:
         chunks_per_sample = 1
     else:
@@ -668,8 +669,8 @@ def _mlx_encode_single(self, audio_nlc, pbar=None, encode_fn=None):
         encode_fn = self._resolve_mlx_encode_fn()
 
     sample_frames = audio_nlc.shape[1]
-    mlx_encode_chunk = 48000 * 30
-    mlx_encode_overlap = 48000 * 2
+    mlx_encode_chunk = SAMPLE_RATE * 30
+    mlx_encode_overlap = SAMPLE_RATE * 2
 
     if sample_frames <= mlx_encode_chunk:
         result = encode_fn(audio_nlc)
@@ -830,9 +831,9 @@ def _normalize_audio_to_stereo_48k(self, audio: torch.Tensor, sr: int) -> torch.
 
     audio = audio[:2]
 
-    if sr != 48000:
+    if sr != SAMPLE_RATE:
         import torchaudio
-        audio = torchaudio.transforms.Resample(sr, 48000)(audio)
+        audio = torchaudio.transforms.Resample(sr, SAMPLE_RATE)(audio)
 
     return torch.clamp(audio, -1.0, 1.0)
 
@@ -886,8 +887,8 @@ def process_reference_audio(self, audio_file: str | None) -> torch.Tensor | None
         if self.is_silence(audio):
             return None
 
-        target_frames = 30 * 48000
-        segment_frames = 10 * 48000
+        target_frames = 30 * SAMPLE_RATE
+        segment_frames = 10 * SAMPLE_RATE
 
         if audio.shape[-1] < target_frames:
             repeat_times = math.ceil(target_frames / audio.shape[-1])

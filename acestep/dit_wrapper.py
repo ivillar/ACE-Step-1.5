@@ -1,8 +1,7 @@
 """AceStepDiTWrapper — thin model wrapper for DiT generation.
 
-Replaces the mixin-based AceStepHandler. Loads in __init__,
-generates in generate(). All functionality preserved via
-method binding from consolidated handler modules.
+Loads in __init__, generates in generate(). All functionality
+preserved via method binding from consolidated handler modules.
 """
 
 import os
@@ -12,6 +11,7 @@ import warnings
 
 import torch
 
+from acestep.constants import SAMPLE_RATE
 from acestep.dit_modules import (
     codec,
     conditioning,
@@ -207,7 +207,7 @@ class AceStepDiTWrapper:
         self.silence_latent = None
 
         # Sample rate
-        self.sample_rate = 48000
+        self.sample_rate = SAMPLE_RATE
 
         # Reward model (temporarily disabled)
         self.reward_model = None
@@ -260,5 +260,3 @@ class AceStepDiTWrapper:
         self.use_mlx_vae = False
 
 
-# Backward compatibility alias
-AceStepHandler = AceStepDiTWrapper

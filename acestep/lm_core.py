@@ -40,7 +40,7 @@ IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
 
 
 def __init__(self, persistent_storage_path: str | None = None):
-    """Initialize LLMHandler with default values"""
+    """Initialize AceStepLMWrapper with default values."""
     self.llm = None
     self.llm_tokenizer = None
     self.llm_initialized = False

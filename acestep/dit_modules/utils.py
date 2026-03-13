@@ -12,7 +12,7 @@ from typing import Any
 import torch
 from loguru import logger
 
-from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT, TASK_INSTRUCTIONS
+from acestep.constants import DEFAULT_DIT_INSTRUCTION, SAMPLE_RATE, SFT_GEN_PROMPT, TASK_INSTRUCTIONS
 from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config
 
 from .lora.adapter_discovery import collect_adapter_names
@@ -49,7 +49,7 @@ def prepare_padding_info(
                     padding_info_batch.append({"left_padding_duration": 0.0, "right_padding_duration": 0.0})
                 elif is_repaint_task or is_lego_task:
                     # Repaint/lego task: May need padding for outpainting
-                    src_audio_duration = processed_src_audio.shape[-1] / 48000.0
+                    src_audio_duration = processed_src_audio.shape[-1] / SAMPLE_RATE
 
                     # Determine actual end time
                     if repainting_end is None or repainting_end < 0:
@@ -61,8 +61,8 @@ def prepare_padding_info(
                     right_padding_duration = max(0, actual_end - src_audio_duration)
 
                     # Create padded audio
-                    left_padding_frames = int(left_padding_duration * 48000)
-                    right_padding_frames = int(right_padding_duration * 48000)
+                    left_padding_frames = int(left_padding_duration * SAMPLE_RATE)
+                    right_padding_frames = int(right_padding_duration * SAMPLE_RATE)
 
                     if left_padding_frames > 0 or right_padding_frames > 0:
                         # Pad the src audio
@@ -131,7 +131,7 @@ def prepare_padding_info(
             # Handle repainting_end - use src audio duration if not specified or negative
             if processed_src_audio is not None:
                 # If src audio is provided, use its duration as default end
-                src_audio_duration = processed_src_audio.shape[-1] / 48000.0
+                src_audio_duration = processed_src_audio.shape[-1] / SAMPLE_RATE
                 if repainting_end is None or repainting_end < 0:
                     # Use src audio duration (before padding), then adjust for padding
                     adjusted_end = src_audio_duration + padding_info_batch[0]["left_padding_duration"]
@@ -802,11 +802,11 @@ def create_target_wavs(self, duration_seconds: float) -> torch.Tensor:
     """Create silent stereo target audio with safe duration handling."""
     try:
         duration_seconds = max(0.1, round(duration_seconds, 1))
-        frames = int(duration_seconds * 48000)
+        frames = int(duration_seconds * SAMPLE_RATE)
         return torch.zeros(2, frames)
     except (TypeError, ValueError, OverflowError):
         logger.exception("[create_target_wavs] Error creating target audio")
-        return torch.zeros(2, 30 * 48000)
+        return torch.zeros(2, 30 * SAMPLE_RATE)
 
 # --- From training_preset.py ---
 

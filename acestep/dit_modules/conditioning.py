@@ -7,7 +7,7 @@ from typing import Any
 import torch
 from loguru import logger
 
-from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT
+from acestep.constants import DEFAULT_DIT_INSTRUCTION, SAMPLE_RATE, SFT_GEN_PROMPT
 
 # --- From conditioning_batch.py ---
 
@@ -654,7 +654,7 @@ def prepare_batch_data(
 
     calculated_duration = None
     if processed_src_audio is not None:
-        calculated_duration = processed_src_audio.shape[-1] / 48000.0
+        calculated_duration = processed_src_audio.shape[-1] / SAMPLE_RATE
     elif audio_duration is not None and float(audio_duration) > 0:
         calculated_duration = float(audio_duration)
 

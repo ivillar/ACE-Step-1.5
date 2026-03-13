@@ -15,6 +15,7 @@ import torch
 from loguru import logger
 
 from acestep.audio_utils import AudioSaver, generate_uuid_from_params, get_lora_weights_hash, normalize_audio
+from acestep.constants import SAMPLE_RATE
 from acestep.generation_helpers import (
     accumulate_lm_time_costs,
     build_user_metadata,
@@ -345,8 +346,8 @@ def generate_music(
     """Generate music using ACE-Step model with optional LM reasoning.
 
     Args:
-        dit_handler: Initialized DiT model handler (AceStepHandler instance)
-        llm_handler: Initialized LLM handler (LLMHandler instance)
+        dit_handler: Initialized DiT model handler (AceStepDiTWrapper instance)
+        llm_handler: Initialized LLM handler (AceStepLMWrapper instance)
         params: Generation parameters (GenerationParams instance)
         config: Generation configuration (GenerationConfig instance)
 
@@ -664,7 +665,7 @@ def generate_music(
 
             # Get audio tensor and metadata
             audio_tensor = dit_audio.get("tensor")
-            sample_rate = dit_audio.get("sample_rate", 48000)
+            sample_rate = dit_audio.get("sample_rate", SAMPLE_RATE)
 
             # --- NORMALIZATION & LOGGING ---
             if params.enable_normalization and params.normalization_db <= 0.0:
@@ -793,7 +794,7 @@ def understand_music(
     Note: cfg_scale and negative_prompt are not supported in understand mode.
 
     Args:
-        llm_handler: Initialized LLM handler (LLMHandler instance)
+        llm_handler: Initialized LLM handler (AceStepLMWrapper instance)
         audio_codes: String of audio code tokens (e.g., "<|audio_code_123|><|audio_code_456|>...")
                      Use empty string or "NO USER INPUT" to generate a sample example.
         temperature: Sampling temperature for generation (0.0-2.0). Higher = more creative.
@@ -967,7 +968,7 @@ def create_sample(
     Note: cfg_scale and negative_prompt are not supported in create_sample mode.
 
     Args:
-        llm_handler: Initialized LLM handler (LLMHandler instance)
+        llm_handler: Initialized LLM handler (AceStepLMWrapper instance)
         query: User's natural language music description (e.g., "a soft Bengali love song")
         instrumental: Whether to generate instrumental music (no vocals)
         vocal_language: Allowed vocal language for constrained decoding (e.g., "en", "zh").
@@ -1142,7 +1143,7 @@ def format_sample(
     Note: cfg_scale and negative_prompt are not supported in format mode.
 
     Args:
-        llm_handler: Initialized LLM handler (LLMHandler instance)
+        llm_handler: Initialized LLM handler (AceStepLMWrapper instance)
         caption: User's caption/description (e.g., "Latin pop, reggaeton")
         lyrics: User's lyrics with structure tags
         user_metadata: Optional dict with user-provided metadata to constrain decoding.

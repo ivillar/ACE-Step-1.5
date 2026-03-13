@@ -18,6 +18,8 @@ import torch
 import torchaudio
 from loguru import logger
 
+from acestep.constants import SAMPLE_RATE
+
 
 def normalize_audio(audio_data: torch.Tensor | np.ndarray, target_db: float = -1.0) -> torch.Tensor | np.ndarray:
     """
@@ -80,7 +82,7 @@ class AudioSaver:
         self,
         audio_data: torch.Tensor | np.ndarray,
         output_path: str | Path,
-        sample_rate: int = 48000,
+        sample_rate: int = SAMPLE_RATE,
         format: str | None = None,
         channels_first: bool = True,
     ) -> str:
@@ -257,7 +259,7 @@ class AudioSaver:
         audio_batch: list[torch.Tensor] | torch.Tensor,
         output_dir: str | Path,
         file_prefix: str = "audio",
-        sample_rate: int = 48000,
+        sample_rate: int = SAMPLE_RATE,
         format: str | None = None,
         channels_first: bool = True,
     ) -> list[str]:
@@ -444,7 +446,7 @@ _default_saver = AudioSaver(default_format="flac")
 def save_audio(
     audio_data: torch.Tensor | np.ndarray,
     output_path: str | Path,
-    sample_rate: int = 48000,
+    sample_rate: int = SAMPLE_RATE,
     format: str | None = None,
     channels_first: bool = True,
 ) -> str:
