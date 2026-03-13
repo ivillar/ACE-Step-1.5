@@ -1,87 +1,85 @@
 """ACE-Step 1.5 CLI — interactive wizard and config-driven music generation."""
 
-import argparse
 import os
 import sys
+import pickle
+import dill
 
-from acestep.cli.env_setup import clear_proxy_env, configure_logging, load_dotenv_config
 
-load_dotenv_config()
-clear_proxy_env()
-configure_logging()
+# --- Environment bootstrap ---
+def _bootstrap():
+    """Load dotenv, clear proxies, configure logging."""
+    try:
+        from dotenv import load_dotenv
+        root = os.path.dirname(os.path.abspath(__file__))
+        for name in (".env", ".env.example"):
+            path = os.path.join(root, name)
+            if os.path.exists(path):
+                load_dotenv(path)
+                break
+    except ImportError:
+        pass
+    for var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        os.environ.pop(var, None)
+    try:
+        from loguru import logger
+        logger.remove()
+        logger.add(sys.stderr, level="INFO",
+                   filter=lambda r: "<|audio_code_" not in r.get("message", ""))
+    except Exception:
+        pass
 
-from acestep.gpu_config import get_gpu_config, is_mps_platform, set_global_gpu_config  # noqa: E402
+_bootstrap()
+
 from acestep.handler import AceStepHandler  # noqa: E402
 from acestep.inference import GenerationConfig, GenerationParams, generate_music  # noqa: E402
 from acestep.llm_inference import LLMHandler  # noqa: E402
-
-from acestep.cli.defaults import SKIP_LM_TASKS, build_all_defaults  # noqa: E402
-from acestep.cli.display import print_dit_prompt, print_final_parameters  # noqa: E402
-from acestep.cli.handler_init import (  # noqa: E402
-    initialize_dit, initialize_lm, requires_lm, resolve_config_path,
+from acestep.model_downloader import (  # noqa: E402
+    SUBMODEL_REGISTRY, check_main_model_exists, check_model_exists,
+    ensure_dit_model, ensure_lm_model, ensure_main_model, get_checkpoints_dir,
 )
-from acestep.cli.lm_pipeline import run_lm_generation, snapshot_originals  # noqa: E402
-from acestep.cli.lm_result_merge import apply_lm_results_to_params  # noqa: E402
-from acestep.cli.parsing import resolve_device  # noqa: E402
-from acestep.cli.pre_generation import run_pre_generation_lm_steps  # noqa: E402
-from acestep.cli.prompt_editing import install_prompt_edit_hook  # noqa: E402
-from acestep.cli.validation import postprocess_args  # noqa: E402
-from acestep.cli.wizard import run_wizard  # noqa: E402
+from acestep.cli.pipeline import (  # noqa: E402
+    apply_lm_results, install_prompt_edit_hook, run_lm_generation,
+    run_pre_generation_steps, snapshot_originals,
+)
+
+SKIP_LM_TASKS = {"cover", "repaint"}
+BASE_ONLY_TASKS = {"lego", "extract", "complete"}
 
 
-def _get_project_root() -> str:
-    return os.path.dirname(os.path.abspath(__file__))
+def _fatal(msg: str) -> None:
+    print(f"Error: {msg}", file=sys.stderr)
+    sys.exit(1)
 
 
 def main() -> None:
     """Entry point for the ACE-Step CLI."""
-    gpu_config = get_gpu_config()
-    set_global_gpu_config(gpu_config)
-    mps_available = is_mps_platform()
-    auto_offload = (
-        (not mps_available) and gpu_config.gpu_memory_gb > 0 and gpu_config.gpu_memory_gb < 16
-    )
+    # 1. Load pickles
+    with open('args.pkl', 'rb') as f:
+        args = pickle.load(f)
+    with open('parser.pkl', 'rb') as f:
+        parser = dill.load(f)
+    device = 'cuda'
+    with open('params_defaults.pkl', 'rb') as f:
+        params_defaults = pickle.load(f)
+    with open('config_defaults.pkl', 'rb') as f:
+        config_defaults = pickle.load(f)
 
-    _print_gpu_banner(gpu_config, mps_available, auto_offload)
+    args.checkpoint_dir = '/workspace/checkpoints'
 
-    params_defaults = GenerationParams()
-    config_defaults = GenerationConfig()
-    parser, cli_args = _parse_cli_args()
-    configure_logging(level=cli_args.log_level)
-
-    args = _build_initial_args(
-        cli_args, parser, params_defaults, config_defaults,
-        gpu_config, mps_available, auto_offload,
-    )
-
-    if cli_args.configure:
-        args, _ = run_wizard(
-            args, configure_only=True, default_config_path=cli_args.config,
-            params_defaults=params_defaults, config_defaults=config_defaults,
-        )
-        print("Configuration complete. Exiting without generation.")
-        sys.exit(0)
-
-    if not cli_args.config:
-        args, should_generate = run_wizard(
-            args, configure_only=False,
-            params_defaults=params_defaults, config_defaults=config_defaults,
-        )
-        if not should_generate:
-            print("Configuration complete. Exiting without generation.")
-            sys.exit(0)
-
-    timesteps = postprocess_args(args, parser)
-    device = resolve_device(args.device)
-
+    # 2. Create handlers
     dit_handler = AceStepHandler()
     llm_handler = LLMHandler()
 
-    resolve_config_path(args, parser, dit_handler)
-    initialize_dit(args, dit_handler, device)
+    # 3. Resolve config path + download models
+    _resolve_config_path(args, parser, dit_handler)
 
-    if requires_lm(args):
-        initialize_lm(args, parser, llm_handler, device)
+    # 4. Initialize DiT
+    _initialize_dit(args, dit_handler, device)
+
+    # 5. Initialize LM if needed
+    if _requires_lm(args):
+        _initialize_lm(args, parser, llm_handler, device)
     elif args.task_type in SKIP_LM_TASKS:
         print(f"LM is not required for task_type '{args.task_type}'. Skipping.")
     else:
@@ -89,186 +87,309 @@ def main() -> None:
 
     print("Handlers initialized.")
 
-    run_pre_generation_lm_steps(args, parser, llm_handler)
-    _setup_prompt_edit_hook(args, llm_handler)
+    # 6. Pre-generation LM steps
+    run_pre_generation_steps(args, parser, llm_handler)
 
-    params, config = _build_generation_objects(args, timesteps)
+    # 7. Setup prompt edit hook
+    if args.thinking and args.task_type not in SKIP_LM_TASKS:
+        instruction_path = os.path.join(
+            os.path.abspath(args.project_root) if args.project_root else os.getcwd(),
+            "instruction.txt",
+        )
+        preloaded_prompt = None
+        if args.config and os.path.exists(instruction_path):
+            try:
+                with open(instruction_path, "r", encoding="utf-8") as f:
+                    preloaded_prompt = f.read()
+                print(f"INFO: Found {instruction_path}. Using it without editing.")
+            except Exception as e:
+                print(f"WARNING: Failed to read {instruction_path}: {e}")
+        if preloaded_prompt is not None and not preloaded_prompt.strip():
+            preloaded_prompt = None
+        install_prompt_edit_hook(
+            llm_handler, instruction_path, preloaded_prompt=preloaded_prompt,
+        )
 
+    # 8. Build params/config
+    params = GenerationParams.from_namespace(args)
+    config = GenerationConfig.from_namespace(args)
+
+    # 9. Print summary
     log_level_upper = str(getattr(args, "log_level", "INFO")).upper()
-    print_final_parameters(
+    _print_final_parameters(
         args, params, config, params_defaults, config_defaults,
         compact=(log_level_upper != "DEBUG"), resolved_device=device,
     )
 
+    # 10. Run generation
     _run_generation(args, params, config, dit_handler, llm_handler, log_level_upper)
 
 
 # ---------------------------------------------------------------------------
-# Thin orchestration helpers
+# Config resolution + model downloads (inlined from handler_init.py)
 # ---------------------------------------------------------------------------
 
-def _parse_cli_args():
-    parser = argparse.ArgumentParser(
-        description="ACE-Step 1.5: Music generation (wizard/config only).",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument("-c", "--config", type=str, help="Path to a TOML config file.")
-    parser.add_argument(
-        "--configure", action="store_true",
-        help="Run wizard to save configuration without generating.",
-    )
-    parser.add_argument(
-        "--backend", type=str, default=None, choices=["vllm", "pt", "mlx"],
-        help="5Hz LM backend. Auto-detected if not specified.",
-    )
-    parser.add_argument(
-        "--log-level", type=str, default="INFO",
-        help="Logging level (TRACE/DEBUG/INFO/WARNING/ERROR/CRITICAL).",
-    )
-    return parser, parser.parse_args()
+def _resolve_config_path(args, parser, dit_handler) -> None:
+    """Auto-select or validate config_path, downloading models if needed."""
+    checkpoints_dir = args.checkpoint_dir
+
+    if args.config_path is None:
+        available = dit_handler.get_available_acestep_v15_models(checkpoints_dir)
+        if args.task_type in BASE_ONLY_TASKS and available:
+            available = [m for m in available if "base" in m.lower()]
+
+        if not available:
+            print("No DiT models found. Downloading main model (acestep-v15-turbo + core components)...")
+            success, msg = ensure_main_model(checkpoints_dir)
+            print(msg)
+            if not success:
+                parser.error(f"Failed to download main model: {msg}")
+            available = dit_handler.get_available_acestep_v15_models()
+            if args.task_type in BASE_ONLY_TASKS and available:
+                available = [m for m in available if "base" in m.lower()]
+
+        if args.task_type in BASE_ONLY_TASKS and not available:
+            print("Base-only task selected. Downloading base DiT model (acestep-v15-base)...")
+            success, msg = ensure_dit_model("acestep-v15-base", checkpoints_dir)
+            print(msg)
+            if not success:
+                parser.error(f"Failed to download base DiT model: {msg}")
+            available = dit_handler.get_available_acestep_v15_models()
+            if available:
+                available = [m for m in available if "base" in m.lower()]
+
+        if available:
+            preferred = "acestep-v15-base" if args.task_type in BASE_ONLY_TASKS else "acestep-v15-turbo"
+            args.config_path = preferred if preferred in available else available[0]
+            print(f"Auto-selected config_path: {args.config_path}")
+        else:
+            parser.error("No available DiT models found. Please specify --config_path.")
+
+    if args.task_type in BASE_ONLY_TASKS and "base" not in str(args.config_path).lower():
+        parser.error(
+            f"task_type '{args.task_type}' requires a base model config "
+            "(e.g., 'acestep-v15-base')."
+        )
+
+    # Ensure checkpoint models exist
+    if not check_main_model_exists(checkpoints_dir):
+        print("Main model components not found. Downloading main model...")
+        success, msg = ensure_main_model(checkpoints_dir)
+        print(msg)
+        if not success:
+            parser.error(f"Failed to download main model: {msg}")
+
+    if args.config_path:
+        config_name = str(args.config_path)
+        known_models = {"acestep-v15-turbo"} | set(SUBMODEL_REGISTRY.keys())
+        if check_model_exists(config_name, checkpoints_dir):
+            pass
+        elif config_name in known_models:
+            success, msg = ensure_dit_model(config_name, checkpoints_dir)
+            if not success:
+                parser.error(f"Failed to download DiT model '{config_name}': {msg}")
+        else:
+            print(
+                f"Warning: DiT model '{config_name}' not found locally and "
+                "not in registry. Skipping auto-download."
+            )
 
 
-def _print_gpu_banner(gpu_config, mps_available: bool, auto_offload: bool) -> None:
-    print(f"\n{'=' * 60}")
-    print("GPU Configuration Detected:")
-    print(f"{'=' * 60}")
-    print(f"  GPU Memory: {gpu_config.gpu_memory_gb:.2f} GiB")
-    print(f"  Configuration Tier: {gpu_config.tier}")
-    max_lm = gpu_config.max_duration_with_lm
-    max_no_lm = gpu_config.max_duration_without_lm
-    print(f"  Max Duration (with LM): {max_lm}s ({max_lm // 60} min)")
-    print(f"  Max Duration (without LM): {max_no_lm}s ({max_no_lm // 60} min)")
-    print(f"  Max Batch Size (with LM): {gpu_config.max_batch_size_with_lm}")
-    print(f"  Max Batch Size (without LM): {gpu_config.max_batch_size_without_lm}")
-    print(f"  Default LM Init: {gpu_config.init_lm_default}")
-    print(f"  Available LM Models: {gpu_config.available_lm_models or 'None'}")
-    print(f"{'=' * 60}\n")
+# ---------------------------------------------------------------------------
+# Handler initialization (inlined from handler_init.py)
+# ---------------------------------------------------------------------------
 
-    if auto_offload:
-        print("Auto-enabling CPU offload (GPU < 16GB)")
-    elif gpu_config.gpu_memory_gb > 0:
-        print("CPU offload disabled by default (GPU >= 16GB)")
-    elif mps_available:
-        print("MPS detected, running on Apple GPU")
+def _initialize_dit(args, dit_handler, device) -> None:
+    use_flash_attention = args.use_flash_attention
+    if use_flash_attention is None:
+        use_flash_attention = dit_handler.is_flash_attention_available(device)
+
+    compile_model = os.environ.get("ACESTEP_COMPILE_MODEL", "").strip().lower() in {
+        "1", "true", "yes", "y", "on",
+    }
+
+    print(f"Initializing DiT handler with model: {args.config_path}")
+    dit_handler.initialize_service(
+        project_root=args.project_root,
+        config_path=args.config_path,
+        device=device,
+        use_flash_attention=use_flash_attention,
+        compile_model=compile_model,
+        offload_to_cpu=args.offload_to_cpu,
+        offload_dit_to_cpu=args.offload_dit_to_cpu,
+        checkpoint_dir=args.checkpoint_dir,
+    )
+
+
+def _requires_lm(args) -> bool:
+    if args.task_type in SKIP_LM_TASKS:
+        return False
+    return (
+        args.thinking
+        or args.sample_mode
+        or bool(args.sample_query and str(args.sample_query).strip())
+        or args.use_format
+        or args.use_cot_metas
+        or args.use_cot_caption
+        or args.use_cot_lyrics
+        or args.use_cot_language
+    )
+
+
+def _initialize_lm(args, parser, llm_handler, device) -> None:
+    checkpoints_dir = get_checkpoints_dir(args.checkpoint_dir)
+
+    if args.lm_model_path is None:
+        available = llm_handler.get_available_5hz_lm_models(checkpoints_dir)
+        if available:
+            args.lm_model_path = available[0]
+            print(f"Using default LM model: {args.lm_model_path}")
+        else:
+            success, msg = ensure_lm_model(checkpoints_dir=checkpoints_dir)
+            print(msg)
+            if not success:
+                parser.error(
+                    "No LM models available. Please specify --lm_model_path "
+                    "or disable --thinking."
+                )
+            available = llm_handler.get_available_5hz_lm_models()
+            if not available:
+                parser.error(
+                    "No LM models available after download. "
+                    "Please specify --lm_model_path or disable --thinking."
+                )
+            args.lm_model_path = available[0]
+            print(f"Using default LM model: {args.lm_model_path}")
     else:
-        print("No GPU detected, running on CPU")
+        lm_model_path = str(args.lm_model_path)
+        if not (os.path.isabs(lm_model_path) and os.path.exists(lm_model_path)):
+            if not check_model_exists(lm_model_path, checkpoints_dir):
+                if lm_model_path in SUBMODEL_REGISTRY:
+                    success, msg = ensure_lm_model(lm_model_path, checkpoints_dir=checkpoints_dir)
+                    print(msg)
+                    if not success:
+                        parser.error(f"Failed to download LM model '{lm_model_path}': {msg}")
+                else:
+                    parser.error(
+                        f"LM model '{lm_model_path}' not found locally and not in registry. "
+                        "Please provide a valid --lm_model_path."
+                    )
 
-
-def _build_initial_args(
-    cli_args, parser, params_defaults, config_defaults,
-    gpu_config, mps_available, auto_offload,
-):
-    """Construct the initial ``argparse.Namespace`` from defaults + TOML config."""
-    import toml
-
-    default_batch_size = 1 if not cli_args.config else config_defaults.batch_size
-
-    if mps_available:
-        try:
-            import mlx.core  # noqa: F401
-            default_backend = "mlx"
-            print("Apple Silicon detected with MLX available. Using MLX backend.")
-        except ImportError:
-            default_backend = "vllm"
-    else:
-        default_backend = "vllm"
-
-    defaults = _default_namespace_dict(
-        params_defaults, config_defaults, gpu_config,
-        default_backend, default_batch_size, auto_offload,
-        cli_args.log_level,
-    )
-
-    args = argparse.Namespace(**defaults)
-    args.config = None
-    if cli_args.config:
-        if not os.path.exists(cli_args.config):
-            parser.error(f"Config file not found: {cli_args.config}")
-        try:
-            with open(cli_args.config, "r") as f:
-                config_from_file = toml.load(f)
-            print(f"Configuration loaded from {cli_args.config}")
-        except Exception as e:
-            parser.error(f"Error loading TOML config file {cli_args.config}: {e}")
-        for key, value in config_from_file.items():
-            setattr(args, key, value)
-        args.config = cli_args.config
-
-    if cli_args.backend is not None:
-        args.backend = cli_args.backend
-    return args
-
-
-def _default_namespace_dict(
-    params_defaults, config_defaults, gpu_config, backend, batch_size,
-    auto_offload, log_level,
-):
-    """Return the full defaults dict for argparse.Namespace construction."""
-    project_root = _get_project_root()
-    defaults = build_all_defaults(params_defaults, config_defaults)
-    defaults.update({
-        "project_root": project_root,
-        "config_path": None,
-        "checkpoint_dir": os.path.join(project_root, "checkpoints"),
-        "lm_model_path": None,
-        "backend": backend,
-        "device": "auto",
-        "use_flash_attention": None,
-        "offload_to_cpu": auto_offload,
-        "offload_dit_to_cpu": False,
-        "save_dir": "output",
-        "caption": "",
-        "prompt": "",
-        "lyrics": None,
-        "instrumental": False,
-        "task_type": params_defaults.task_type,
-        "instruction": params_defaults.instruction,
-        "reference_audio": params_defaults.reference_audio,
-        "src_audio": params_defaults.src_audio,
-        "lego_track": "",
-        "extract_track": "",
-        "complete_tracks": "",
-        "audio_codes": "",
-        "thinking": gpu_config.init_lm_default,
-        "batch_size": batch_size,
-        "log_level": log_level,
-    })
-    return defaults
-
-
-def _setup_prompt_edit_hook(args, llm_handler) -> None:
-    if not (args.thinking and args.task_type not in SKIP_LM_TASKS):
-        return
-    instruction_path = os.path.join(
-        os.path.abspath(args.project_root) if args.project_root else os.getcwd(),
-        "instruction.txt",
-    )
-    preloaded_prompt = None
-    if args.config and os.path.exists(instruction_path):
-        try:
-            with open(instruction_path, "r", encoding="utf-8") as f:
-                preloaded_prompt = f.read()
-            print(f"INFO: Found {instruction_path}. Using it without editing.")
-        except Exception as e:
-            print(f"WARNING: Failed to read {instruction_path}: {e}")
-    if preloaded_prompt is not None and not preloaded_prompt.strip():
-        preloaded_prompt = None
-    install_prompt_edit_hook(
-        llm_handler, instruction_path, preloaded_prompt=preloaded_prompt,
+    print(f"Initializing LM handler with model: {args.lm_model_path}")
+    llm_handler.initialize(
+        checkpoint_dir=args.checkpoint_dir,
+        lm_model_path=args.lm_model_path,
+        backend=args.backend,
+        device=device,
+        offload_to_cpu=args.offload_to_cpu,
+        dtype=None,
     )
 
 
-def _build_generation_objects(args, timesteps):
-    params = GenerationParams.from_namespace(args)
-    if timesteps is not None:
-        params.timesteps = timesteps
-    config = GenerationConfig.from_namespace(args)
-    return params, config
+# ---------------------------------------------------------------------------
+# Display helpers (inlined from display.py)
+# ---------------------------------------------------------------------------
+
+def _summarize_lyrics(lyrics) -> str:
+    if not lyrics:
+        return "none"
+    if isinstance(lyrics, str):
+        stripped = lyrics.strip()
+        if not stripped:
+            return "none"
+        if os.path.isfile(stripped):
+            return f"file: {os.path.basename(stripped)}"
+        if len(stripped) <= 60:
+            return stripped.replace("\n", " ")
+        return f"text ({len(stripped)} chars)"
+    return "provided"
 
 
-def _run_generation(
-    args, params, config, dit_handler, llm_handler, log_level_upper,
+def _print_final_parameters(
+    args, params, config, params_defaults, config_defaults,
+    compact, resolved_device=None,
 ) -> None:
+    if not compact:
+        print("\n--- Final Parameters (Args) ---")
+        for k in sorted(vars(args).keys()):
+            print(f"{k}: {getattr(args, k)}")
+        print("------------------------------")
+        print("\n--- Final Parameters (GenerationParams) ---")
+        for k in sorted(vars(params).keys()):
+            print(f"{k}: {getattr(params, k)}")
+        print("-------------------------------------------")
+        print("\n--- Final Parameters (GenerationConfig) ---")
+        for k in sorted(vars(config).keys()):
+            print(f"{k}: {getattr(config, k)}")
+        print("-------------------------------------------\n")
+        return
+
+    device_display = args.device
+    if resolved_device and resolved_device != args.device:
+        device_display = f"{args.device} -> {resolved_device}"
+
+    print("\n--- Final Parameters (Summary) ---")
+    print(f"task_type: {params.task_type}")
+    print(f"caption: {params.caption or 'none'}")
+    print(f"lyrics: {_summarize_lyrics(params.lyrics)}")
+    print(f"duration: {params.duration}s")
+    print(f"outputs: {config.batch_size}")
+    if params.bpm not in (None, params_defaults.bpm):
+        print(f"bpm: {params.bpm}")
+    if params.keyscale not in (None, params_defaults.keyscale):
+        print(f"keyscale: {params.keyscale}")
+    if params.timesignature not in (None, params_defaults.timesignature):
+        print(f"timesignature: {params.timesignature}")
+    print(f"instrumental: {params.instrumental}")
+    print(f"thinking: {params.thinking}")
+    print(f"lm_model: {args.lm_model_path or 'auto'}")
+    print(f"dit_model: {args.config_path or 'auto'}")
+    print(f"backend: {args.backend}")
+    print(f"device: {device_display}")
+    print(f"audio_format: {config.audio_format}")
+    print(f"save_dir: {args.save_dir}")
+    if config.seeds:
+        print(f"seeds: {config.seeds}")
+    else:
+        print(f"seed: {params.seed} (random={config.use_random_seed})")
+    print("-------------------------------\n")
+
+
+def _build_meta_dict(params):
+    meta = {}
+    if params.bpm is not None:
+        meta["bpm"] = params.bpm
+    if params.timesignature:
+        meta["timesignature"] = params.timesignature
+    if params.keyscale:
+        meta["keyscale"] = params.keyscale
+    if params.duration is not None:
+        meta["duration"] = params.duration
+    return meta or None
+
+
+def _print_dit_prompt(dit_handler, params) -> None:
+    meta = _build_meta_dict(params)
+    caption_input, lyrics_input = dit_handler.build_dit_inputs(
+        task=params.task_type,
+        instruction=params.instruction,
+        caption=params.caption or "",
+        lyrics=params.lyrics or "",
+        metas=meta,
+        vocal_language=params.vocal_language or "unknown",
+    )
+    print("\n--- Final DiT Prompt (Caption Branch) ---")
+    print(caption_input)
+    print("\n--- Final DiT Prompt (Lyrics Branch) ---")
+    print(lyrics_input)
+    print("----------------------------------------\n")
+
+
+# ---------------------------------------------------------------------------
+# Generation
+# ---------------------------------------------------------------------------
+
+def _run_generation(args, params, config, dit_handler, llm_handler, log_level_upper) -> None:
     manual_edit = (
         args.thinking
         and args.task_type not in SKIP_LM_TASKS
@@ -289,24 +410,21 @@ def _run_generation(
         lm_time_costs = lm_result.get("lm_time_costs")
         if not lm_result.get("success", False):
             return
-        apply_lm_results_to_params(params, lm_result, originals)
+        apply_lm_results(params, lm_result, originals)
         if hasattr(llm_handler, "_skip_prompt_edit"):
             llm_handler._skip_prompt_edit = False
         if log_level_upper in {"INFO", "DEBUG"}:
-            print_dit_prompt(dit_handler, params)
+            _print_dit_prompt(dit_handler, params)
         print("Running DiT generation with edited prompt and cached audio codes...")
-
     else:
         if log_level_upper in {"INFO", "DEBUG"}:
-            print_dit_prompt(dit_handler, params)
+            _print_dit_prompt(dit_handler, params)
 
     result = generate_music(
         dit_handler, llm_handler, params, config, save_dir=args.save_dir,
     )
-    _print_results(result, args, manual_edit, lm_time_costs)
 
-
-def _print_results(result, args, manual_edit, lm_time_costs) -> None:
+    # Print results
     if not result.success:
         print(f"\nGeneration failed: {result.error}")
         print(f"   Status: {result.status_message}")
