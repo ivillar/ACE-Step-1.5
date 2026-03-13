@@ -1,10 +1,7 @@
 """Parsing utilities for CLI arguments and user input."""
 
-import ast
 import re
-from typing import List, Optional
-
-import torch
+from typing import Optional
 
 
 def parse_description_hints(description: str) -> tuple[Optional[str], bool]:
@@ -72,48 +69,3 @@ def parse_number(value: str) -> Optional[float]:
         return float(match.group(0))
     except Exception:
         return None
-
-
-def parse_timesteps_input(value) -> Optional[List[float]]:
-    """Parse a timesteps value from CLI/TOML into a list of floats."""
-    if value is None:
-        return None
-    if isinstance(value, list):
-        if all(isinstance(t, (int, float)) for t in value):
-            return [float(t) for t in value]
-        return None
-    if not isinstance(value, str):
-        return None
-    raw = value.strip()
-    if not raw:
-        return None
-    if raw.startswith("[") or raw.startswith("("):
-        try:
-            parsed = ast.literal_eval(raw)
-        except Exception:
-            return None
-        if isinstance(parsed, list) and all(isinstance(t, (int, float)) for t in parsed):
-            return [float(t) for t in parsed]
-        return None
-    try:
-        return [float(t.strip()) for t in raw.split(",") if t.strip()]
-    except Exception:
-        return None
-
-
-def parse_bool(value: str) -> bool:
-    """Truthy string check (``true``, ``1``, ``yes``, ``y``)."""
-    return str(value).lower() in {"true", "1", "yes", "y"}
-
-
-def resolve_device(device: str) -> str:
-    """Map ``'auto'`` to the best available accelerator."""
-    if device == "auto":
-        if hasattr(torch, "xpu") and torch.xpu.is_available():
-            return "xpu"
-        if torch.cuda.is_available():
-            return "cuda"
-        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            return "mps"
-        return "cpu"
-    return device
