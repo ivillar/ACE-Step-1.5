@@ -4,6 +4,9 @@ import argparse
 import os
 import sys
 
+import pickle
+import dill
+
 from acestep.cli.env_setup import clear_proxy_env, configure_logging, load_dotenv_config
 
 load_dotenv_config()
@@ -26,12 +29,18 @@ from acestep.cli.prompt_editing import install_prompt_edit_hook  # noqa: E402
 
 def main() -> None:
     """Entry point for the ACE-Step CLI."""
-    args = {}
-    parser = None
-    device = None
+    with open('args.pkl', 'rb') as f:
+        args = pickle.load(f)
+
+    with open('parser.pkl', 'rb') as f:
+        parser = dill.load(f)
+    device = 'cuda'
     timesteps = None
-    params_defaults = None
-    config_defaults = None
+    with open('params_defaults.pkl', 'rb') as f:
+        params_defaults = pickle.load(f)
+
+    with open('config_defaults.pkl', 'rb') as f:
+        config_defaults = pickle.load(f)
 
     dit_handler = AceStepHandler()
     llm_handler = LLMHandler()
