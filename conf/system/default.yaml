@@ -1,0 +1,15 @@
+device: auto
+checkpoint_dir: /workspace/checkpoints
+project_root: "."
+save_dir: output
+log_level: INFO
+# DiT model: acestep-v15-turbo, acestep-v15-base, acestep-v15-sft,
+#             acestep-v15-turbo-shift1, acestep-v15-turbo-shift3,
+#             acestep-v15-turbo-continuous
+config_path: acestep-v15-turbo-shift3
+# LM model: acestep-5Hz-lm-0.6B, acestep-5Hz-lm-1.7B, acestep-5Hz-lm-4B
+lm_model_path: acestep-5Hz-lm-0.6B
+backend: vllm
+use_flash_attention: null
+offload_to_cpu: false
+offload_dit_to_cpu: false

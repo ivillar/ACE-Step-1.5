@@ -17,160 +17,172 @@ from acestep.inference import GenerationConfig, GenerationParams, create_sample,
 # Pre-generation steps
 # ---------------------------------------------------------------------------
 
-def run_pre_generation_steps(args, parser, llm_handler) -> None:
+def run_pre_generation_steps(
+    params: GenerationParams, llm_handler, *,
+    sample_mode: bool, sample_query: str, use_format: bool,
+) -> None:
     """Execute sample_mode, format_sample, and use_cot_lyrics before generation."""
     format_has_duration = False
 
-    if args.sample_mode or (args.sample_query and str(args.sample_query).strip()):
-        _run_sample_mode(args, parser, llm_handler)
+    if sample_mode or (sample_query and str(sample_query).strip()):
+        _run_sample_mode(params, llm_handler, sample_query)
 
-    if args.use_format and (args.caption or args.lyrics):
-        format_has_duration = _run_format_sample(args, parser, llm_handler)
+    if use_format and (params.caption or params.lyrics):
+        format_has_duration = _run_format_sample(params, llm_handler)
 
-    if args.use_cot_lyrics:
-        _run_cot_lyrics_generation(args, parser, llm_handler)
+    if params.use_cot_lyrics:
+        _run_cot_lyrics_generation(params, llm_handler)
 
-    if args.sample_mode or format_has_duration:
-        args.use_cot_metas = False
-
-
-def _apply_sample_result(args, result) -> None:
-    """Apply a create_sample result to args (shared by sample_mode and cot_lyrics)."""
-    args.caption = result.caption
-    args.lyrics = result.lyrics
-    if args.bpm is None:
-        args.bpm = result.bpm
-    if not args.keyscale:
-        args.keyscale = result.keyscale
-    if not args.timesignature:
-        args.timesignature = result.timesignature
-    if args.duration <= 0:
-        args.duration = result.duration
+    if sample_mode or format_has_duration:
+        params.use_cot_metas = False
 
 
-def _run_sample_mode(args, parser, llm_handler) -> None:
+def _lm_top_k(params: GenerationParams):
+    """Convert lm_top_k=0 to None (disabled) for vLLM compatibility."""
+    return None if not params.lm_top_k or params.lm_top_k == 0 else int(params.lm_top_k)
+
+
+def _lm_top_p(params: GenerationParams):
+    """Convert lm_top_p>=1.0 to None (disabled) for vLLM compatibility."""
+    return None if not params.lm_top_p or params.lm_top_p >= 1.0 else params.lm_top_p
+
+
+def _apply_sample_result(params: GenerationParams, result) -> None:
+    """Apply a create_sample result to params."""
+    params.caption = result.caption
+    params.lyrics = result.lyrics
+    if params.bpm is None:
+        params.bpm = result.bpm
+    if not params.keyscale:
+        params.keyscale = result.keyscale
+    if not params.timesignature:
+        params.timesignature = result.timesignature
+    if params.duration <= 0:
+        params.duration = result.duration
+
+
+def _run_sample_mode(params: GenerationParams, llm_handler, sample_query: str) -> None:
     if not llm_handler.llm_initialized:
-        parser.error(
-            "--sample_mode/sample_query requires the LM handler, "
+        raise RuntimeError(
+            "sample_mode/sample_query requires the LM handler, "
             "but it's not initialized."
         )
 
-    sample_query = (
-        args.sample_query
-        if args.sample_query and str(args.sample_query).strip()
+    query = (
+        sample_query
+        if sample_query and str(sample_query).strip()
         else "NO USER INPUT"
     )
-    parsed_language, parsed_instrumental = parse_description_hints(sample_query)
-    if args.vocal_language and args.vocal_language not in ("en", "unknown", ""):
-        sample_language = args.vocal_language
+    parsed_language, parsed_instrumental = parse_description_hints(query)
+    if params.vocal_language and params.vocal_language not in ("en", "unknown", ""):
+        sample_language = params.vocal_language
     else:
         sample_language = parsed_language
 
     print("\nINFO: Creating sample via 'create_sample'...")
     result = create_sample(
-        llm_handler=llm_handler, query=sample_query,
+        llm_handler=llm_handler, query=query,
         instrumental=parsed_instrumental, vocal_language=sample_language,
-        temperature=args.lm_temperature, top_k=args.lm_top_k, top_p=args.lm_top_p,
+        temperature=params.lm_temperature, top_k=_lm_top_k(params), top_p=_lm_top_p(params),
     )
     if result.success:
-        _apply_sample_result(args, result)
-        args.instrumental = bool(result.instrumental)
-        if args.vocal_language in ("unknown", "", None):
-            args.vocal_language = result.language
-        args.sample_mode = True
+        _apply_sample_result(params, result)
+        params.instrumental = bool(result.instrumental)
+        if params.vocal_language in ("unknown", "", None):
+            params.vocal_language = result.language
         print("Sample created. Using generated parameters.")
     else:
-        parser.error(
+        raise RuntimeError(
             f"create_sample failed: {result.error or result.status_message}"
         )
 
 
-def _run_format_sample(args, parser, llm_handler) -> bool:
+def _run_format_sample(params: GenerationParams, llm_handler) -> bool:
     """Returns True if format_sample provided a duration."""
     if not llm_handler.llm_initialized:
-        parser.error(
-            "--use_format requires the LM handler, but it's not initialized."
+        raise RuntimeError(
+            "use_format requires the LM handler, but it's not initialized."
         )
 
     user_metadata: dict = {}
-    if args.bpm is not None:
-        user_metadata["bpm"] = args.bpm
-    if args.duration is not None and float(args.duration) > 0:
-        user_metadata["duration"] = float(args.duration)
-    if args.keyscale:
-        user_metadata["keyscale"] = args.keyscale
-    if args.timesignature:
-        user_metadata["timesignature"] = args.timesignature
-    if args.vocal_language and args.vocal_language != "unknown":
-        user_metadata["language"] = args.vocal_language
+    if params.bpm is not None:
+        user_metadata["bpm"] = params.bpm
+    if params.duration is not None and float(params.duration) > 0:
+        user_metadata["duration"] = float(params.duration)
+    if params.keyscale:
+        user_metadata["keyscale"] = params.keyscale
+    if params.timesignature:
+        user_metadata["timesignature"] = params.timesignature
+    if params.vocal_language and params.vocal_language != "unknown":
+        user_metadata["language"] = params.vocal_language
 
     print("\nINFO: Formatting caption/lyrics via 'format_sample'...")
     result = format_sample(
         llm_handler=llm_handler,
-        caption=args.caption or "", lyrics=args.lyrics or "",
+        caption=params.caption or "", lyrics=params.lyrics or "",
         user_metadata=user_metadata or None,
-        temperature=args.lm_temperature,
-        top_k=args.lm_top_k, top_p=args.lm_top_p,
+        temperature=params.lm_temperature,
+        top_k=_lm_top_k(params), top_p=_lm_top_p(params),
     )
     if result.success:
-        args.caption = result.caption or args.caption
-        args.lyrics = result.lyrics or args.lyrics
+        params.caption = result.caption or params.caption
+        params.lyrics = result.lyrics or params.lyrics
         fmt_has_duration = False
         if result.duration:
-            args.duration = result.duration
+            params.duration = result.duration
             fmt_has_duration = True
         if result.bpm:
-            args.bpm = result.bpm
+            params.bpm = result.bpm
         if result.keyscale:
-            args.keyscale = result.keyscale
+            params.keyscale = result.keyscale
         if result.timesignature:
-            args.timesignature = result.timesignature
+            params.timesignature = result.timesignature
         print("Format complete.")
         return fmt_has_duration
     else:
-        parser.error(
+        raise RuntimeError(
             f"format_sample failed: {result.error or result.status_message}"
         )
 
 
-def _run_cot_lyrics_generation(args, parser, llm_handler) -> None:
+def _run_cot_lyrics_generation(params: GenerationParams, llm_handler) -> None:
     if not llm_handler.llm_initialized:
-        parser.error(
-            "--use_cot_lyrics requires the LM handler, but it's not initialized. "
-            "Ensure --thinking is enabled."
+        raise RuntimeError(
+            "use_cot_lyrics requires the LM handler, but it's not initialized. "
+            "Ensure thinking is enabled."
         )
 
     print("\nINFO: Generating lyrics and metadata via 'create_sample'...")
     result = create_sample(
-        llm_handler=llm_handler, query=args.caption,
+        llm_handler=llm_handler, query=params.caption,
         instrumental=False,
         vocal_language=(
-            args.vocal_language if args.vocal_language != "unknown" else None
+            params.vocal_language if params.vocal_language != "unknown" else None
         ),
-        temperature=args.lm_temperature,
-        top_k=args.lm_top_k, top_p=args.lm_top_p,
+        temperature=params.lm_temperature,
+        top_k=_lm_top_k(params), top_p=_lm_top_p(params),
     )
     if result.success:
         print("Automatic sample creation successful. Using generated parameters:")
-        _apply_sample_result(args, result)
-        if args.vocal_language == "unknown":
-            args.vocal_language = result.language
-        lyrics_preview = args.lyrics[:150].strip().replace("\n", " ")
-        print(f"  - Caption: {args.caption}")
+        _apply_sample_result(params, result)
+        if params.vocal_language == "unknown":
+            params.vocal_language = result.language
+        lyrics_preview = params.lyrics[:150].strip().replace("\n", " ")
+        print(f"  - Caption: {params.caption}")
         print(f"  - Lyrics: '{lyrics_preview}...'")
         print(
-            f"  - Metadata: BPM={args.bpm}, Key='{args.keyscale}', "
-            f"Lang='{args.vocal_language}'"
+            f"  - Metadata: BPM={params.bpm}, Key='{params.keyscale}', "
+            f"Lang='{params.vocal_language}'"
         )
-        args.use_cot_metas = False
-        args.use_cot_caption = False
+        params.use_cot_metas = False
+        params.use_cot_caption = False
     else:
         print(f"WARNING: Automatic lyric generation failed: {result.error}")
         print("         Proceeding with an instrumental track instead.")
-        args.lyrics = "[Instrumental]"
-        args.instrumental = True
+        params.lyrics = "[Instrumental]"
+        params.instrumental = True
 
-    args.use_cot_lyrics = False
+    params.use_cot_lyrics = False
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +547,6 @@ def apply_lm_results(
     edited_instruction = lm_result.get("edited_instruction")
     lm_metadata = lm_result.get("lm_metadata") or {}
     regenerated = lm_result.get("regenerated", False)
-
     if regenerated:
         edited_metas_no_text = {k: v for k, v in edited_metas.items() if k != "caption"}
         _merge_caption(params, edited_metas_no_text, None, lm_metadata)

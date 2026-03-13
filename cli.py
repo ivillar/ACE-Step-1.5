@@ -1,9 +1,10 @@
-"""ACE-Step 1.5 CLI — interactive wizard and config-driven music generation."""
+"""ACE-Step 1.5 CLI — Hydra config-driven music generation."""
 
 import os
 import sys
-import pickle
-import dill
+
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
 
 # --- Environment bootstrap ---
@@ -47,57 +48,63 @@ SKIP_LM_TASKS = {"cover", "repaint"}
 BASE_ONLY_TASKS = {"lego", "extract", "complete"}
 
 
-def _fatal(msg: str) -> None:
-    print(f"Error: {msg}", file=sys.stderr)
-    sys.exit(1)
-
-
-def main() -> None:
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def run(cfg: DictConfig) -> None:
     """Entry point for the ACE-Step CLI."""
-    # 1. Load pickles
-    with open('args.pkl', 'rb') as f:
-        args = pickle.load(f)
-    with open('parser.pkl', 'rb') as f:
-        parser = dill.load(f)
-    device = 'cuda'
-    with open('params_defaults.pkl', 'rb') as f:
-        params_defaults = pickle.load(f)
-    with open('config_defaults.pkl', 'rb') as f:
-        config_defaults = pickle.load(f)
+    # Unpack system config into a plain mutable dict (Hydra DictConfig is frozen)
+    sys_cfg = OmegaConf.to_container(cfg.system, resolve=True)
 
-    args.checkpoint_dir = '/workspace/checkpoints'
+    # Resolve device
+    device = str(sys_cfg["device"])
+    if device == "auto":
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # 2. Create handlers
+    # Build params and config from Hydra config groups
+    params_dict = OmegaConf.to_container(cfg.params, resolve=True)
+    config_dict = OmegaConf.to_container(cfg.generation, resolve=True)
+    params = GenerationParams(**params_dict)
+    config = GenerationConfig(**config_dict)
+
+    # Pipeline flags
+    sample_mode = bool(cfg.sample_mode)
+    sample_query = str(cfg.sample_query) if cfg.sample_query else ""
+    use_format = bool(cfg.use_format)
+
+    # Create handlers
     dit_handler = AceStepDiTWrapper()
     llm_handler = AceStepLMWrapper()
 
-    # 3. Resolve config path + download models
-    _resolve_config_path(args, parser, dit_handler)
+    # Resolve config path + download models
+    _resolve_config_path(sys_cfg, dit_handler, params.task_type)
 
-    # 4. Initialize DiT
-    _initialize_dit(args, dit_handler, device)
+    # Initialize DiT
+    _initialize_dit(sys_cfg, dit_handler, device)
 
-    # 5. Initialize LM if needed
-    if _requires_lm(args):
-        _initialize_lm(args, parser, llm_handler, device)
-    elif args.task_type in SKIP_LM_TASKS:
-        print(f"LM is not required for task_type '{args.task_type}'. Skipping.")
+    # Initialize LM if needed
+    if _requires_lm(params, sample_mode, sample_query, use_format):
+        _initialize_lm(sys_cfg, llm_handler, device)
+    elif params.task_type in SKIP_LM_TASKS:
+        print(f"LM is not required for task_type '{params.task_type}'. Skipping.")
     else:
         print("LM 'thinking' is disabled. Skipping LM handler initialization.")
 
     print("Handlers initialized.")
 
-    # 6. Pre-generation LM steps
-    run_pre_generation_steps(args, parser, llm_handler)
+    # Pre-generation LM steps
+    run_pre_generation_steps(
+        params, llm_handler,
+        sample_mode=sample_mode,
+        sample_query=sample_query,
+        use_format=use_format,
+    )
 
-    # 7. Setup prompt edit hook
-    if args.thinking and args.task_type not in SKIP_LM_TASKS:
-        instruction_path = os.path.join(
-            os.path.abspath(args.project_root) if args.project_root else os.getcwd(),
-            "instruction.txt",
-        )
+    # Setup prompt edit hook
+    if params.thinking and params.task_type not in SKIP_LM_TASKS:
+        project_root = os.path.abspath(sys_cfg["project_root"]) if sys_cfg["project_root"] else os.getcwd()
+        instruction_path = os.path.join(project_root, "instruction.txt")
         preloaded_prompt = None
-        if args.config and os.path.exists(instruction_path):
+        if sys_cfg["config_path"] and os.path.exists(instruction_path):
             try:
                 with open(instruction_path, "r", encoding="utf-8") as f:
                     preloaded_prompt = f.read()
@@ -110,32 +117,29 @@ def main() -> None:
             llm_handler, instruction_path, preloaded_prompt=preloaded_prompt,
         )
 
-    # 8. Build params/config
-    params = GenerationParams.from_namespace(args)
-    config = GenerationConfig.from_namespace(args)
-
-    # 9. Print summary
-    log_level_upper = str(getattr(args, "log_level", "INFO")).upper()
+    # Print summary
+    log_level_upper = str(sys_cfg["log_level"]).upper()
     _print_final_parameters(
-        args, params, config, params_defaults, config_defaults,
-        compact=(log_level_upper != "DEBUG"), resolved_device=device,
+        sys_cfg, params, config,
+        compact=(log_level_upper != "DEBUG"),
+        resolved_device=device,
     )
 
-    # 10. Run generation
-    _run_generation(args, params, config, dit_handler, llm_handler, log_level_upper)
+    # Run generation
+    _run_generation(sys_cfg, params, config, dit_handler, llm_handler, log_level_upper)
 
 
 # ---------------------------------------------------------------------------
-# Config resolution + model downloads (inlined from handler_init.py)
+# Config resolution + model downloads
 # ---------------------------------------------------------------------------
 
-def _resolve_config_path(args, parser, dit_handler) -> None:
+def _resolve_config_path(sys_cfg, dit_handler, task_type) -> None:
     """Auto-select or validate config_path, downloading models if needed."""
-    checkpoints_dir = args.checkpoint_dir
+    checkpoints_dir = sys_cfg["checkpoint_dir"]
 
-    if args.config_path is None:
+    if sys_cfg["config_path"] is None:
         available = dit_handler.get_available_acestep_v15_models(checkpoints_dir)
-        if args.task_type in BASE_ONLY_TASKS and available:
+        if task_type in BASE_ONLY_TASKS and available:
             available = [m for m in available if "base" in m.lower()]
 
         if not available:
@@ -143,31 +147,31 @@ def _resolve_config_path(args, parser, dit_handler) -> None:
             success, msg = ensure_main_model(checkpoints_dir)
             print(msg)
             if not success:
-                parser.error(f"Failed to download main model: {msg}")
+                raise RuntimeError(f"Failed to download main model: {msg}")
             available = dit_handler.get_available_acestep_v15_models()
-            if args.task_type in BASE_ONLY_TASKS and available:
+            if task_type in BASE_ONLY_TASKS and available:
                 available = [m for m in available if "base" in m.lower()]
 
-        if args.task_type in BASE_ONLY_TASKS and not available:
+        if task_type in BASE_ONLY_TASKS and not available:
             print("Base-only task selected. Downloading base DiT model (acestep-v15-base)...")
             success, msg = ensure_dit_model("acestep-v15-base", checkpoints_dir)
             print(msg)
             if not success:
-                parser.error(f"Failed to download base DiT model: {msg}")
+                raise RuntimeError(f"Failed to download base DiT model: {msg}")
             available = dit_handler.get_available_acestep_v15_models()
             if available:
                 available = [m for m in available if "base" in m.lower()]
 
         if available:
-            preferred = "acestep-v15-base" if args.task_type in BASE_ONLY_TASKS else "acestep-v15-turbo"
-            args.config_path = preferred if preferred in available else available[0]
-            print(f"Auto-selected config_path: {args.config_path}")
+            preferred = "acestep-v15-base" if task_type in BASE_ONLY_TASKS else "acestep-v15-turbo"
+            sys_cfg["config_path"] = preferred if preferred in available else available[0]
+            print(f"Auto-selected config_path: {sys_cfg['config_path']}")
         else:
-            parser.error("No available DiT models found. Please specify --config_path.")
+            raise RuntimeError("No available DiT models found. Please specify system.config_path.")
 
-    if args.task_type in BASE_ONLY_TASKS and "base" not in str(args.config_path).lower():
-        parser.error(
-            f"task_type '{args.task_type}' requires a base model config "
+    if task_type in BASE_ONLY_TASKS and "base" not in str(sys_cfg["config_path"]).lower():
+        raise RuntimeError(
+            f"task_type '{task_type}' requires a base model config "
             "(e.g., 'acestep-v15-base')."
         )
 
@@ -177,17 +181,17 @@ def _resolve_config_path(args, parser, dit_handler) -> None:
         success, msg = ensure_main_model(checkpoints_dir)
         print(msg)
         if not success:
-            parser.error(f"Failed to download main model: {msg}")
+            raise RuntimeError(f"Failed to download main model: {msg}")
 
-    if args.config_path:
-        config_name = str(args.config_path)
+    if sys_cfg["config_path"]:
+        config_name = str(sys_cfg["config_path"])
         known_models = {"acestep-v15-turbo"} | set(SUBMODEL_REGISTRY.keys())
         if check_model_exists(config_name, checkpoints_dir):
             pass
         elif config_name in known_models:
             success, msg = ensure_dit_model(config_name, checkpoints_dir)
             if not success:
-                parser.error(f"Failed to download DiT model '{config_name}': {msg}")
+                raise RuntimeError(f"Failed to download DiT model '{config_name}': {msg}")
         else:
             print(
                 f"Warning: DiT model '{config_name}' not found locally and "
@@ -196,11 +200,11 @@ def _resolve_config_path(args, parser, dit_handler) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Handler initialization (inlined from handler_init.py)
+# Handler initialization
 # ---------------------------------------------------------------------------
 
-def _initialize_dit(args, dit_handler, device) -> None:
-    use_flash_attention = args.use_flash_attention
+def _initialize_dit(sys_cfg, dit_handler, device) -> None:
+    use_flash_attention = sys_cfg["use_flash_attention"]
     if use_flash_attention is None:
         use_flash_attention = dit_handler.is_flash_attention_available(device)
 
@@ -208,86 +212,86 @@ def _initialize_dit(args, dit_handler, device) -> None:
         "1", "true", "yes", "y", "on",
     }
 
-    print(f"Initializing DiT handler with model: {args.config_path}")
+    print(f"Initializing DiT handler with model: {sys_cfg['config_path']}")
     dit_handler.initialize_service(
-        project_root=args.project_root,
-        config_path=args.config_path,
+        project_root=sys_cfg["project_root"],
+        config_path=sys_cfg["config_path"],
         device=device,
         use_flash_attention=use_flash_attention,
         compile_model=compile_model,
-        offload_to_cpu=args.offload_to_cpu,
-        offload_dit_to_cpu=args.offload_dit_to_cpu,
-        checkpoint_dir=args.checkpoint_dir,
+        offload_to_cpu=sys_cfg["offload_to_cpu"],
+        offload_dit_to_cpu=sys_cfg["offload_dit_to_cpu"],
+        checkpoint_dir=sys_cfg["checkpoint_dir"],
     )
 
 
-def _requires_lm(args) -> bool:
-    if args.task_type in SKIP_LM_TASKS:
+def _requires_lm(params, sample_mode, sample_query, use_format) -> bool:
+    if params.task_type in SKIP_LM_TASKS:
         return False
     return (
-        args.thinking
-        or args.sample_mode
-        or bool(args.sample_query and str(args.sample_query).strip())
-        or args.use_format
-        or args.use_cot_metas
-        or args.use_cot_caption
-        or args.use_cot_lyrics
-        or args.use_cot_language
+        params.thinking
+        or sample_mode
+        or bool(sample_query and str(sample_query).strip())
+        or use_format
+        or params.use_cot_metas
+        or params.use_cot_caption
+        or params.use_cot_lyrics
+        or params.use_cot_language
     )
 
 
-def _initialize_lm(args, parser, llm_handler, device) -> None:
-    checkpoints_dir = get_checkpoints_dir(args.checkpoint_dir)
+def _initialize_lm(sys_cfg, llm_handler, device) -> None:
+    checkpoints_dir = get_checkpoints_dir(sys_cfg["checkpoint_dir"])
 
-    if args.lm_model_path is None:
+    if sys_cfg["lm_model_path"] is None:
         available = llm_handler.get_available_5hz_lm_models(checkpoints_dir)
         if available:
-            args.lm_model_path = available[0]
-            print(f"Using default LM model: {args.lm_model_path}")
+            sys_cfg["lm_model_path"] = available[0]
+            print(f"Using default LM model: {sys_cfg['lm_model_path']}")
         else:
             success, msg = ensure_lm_model(checkpoints_dir=checkpoints_dir)
             print(msg)
             if not success:
-                parser.error(
-                    "No LM models available. Please specify --lm_model_path "
-                    "or disable --thinking."
+                raise RuntimeError(
+                    "No LM models available. Please specify system.lm_model_path "
+                    "or disable params.thinking."
                 )
             available = llm_handler.get_available_5hz_lm_models()
             if not available:
-                parser.error(
+                raise RuntimeError(
                     "No LM models available after download. "
-                    "Please specify --lm_model_path or disable --thinking."
+                    "Please specify system.lm_model_path or disable params.thinking."
                 )
-            args.lm_model_path = available[0]
-            print(f"Using default LM model: {args.lm_model_path}")
+            sys_cfg["lm_model_path"] = available[0]
+            print(f"Using default LM model: {sys_cfg['lm_model_path']}")
     else:
-        lm_model_path = str(args.lm_model_path)
+        lm_model_path = str(sys_cfg["lm_model_path"])
         if not (os.path.isabs(lm_model_path) and os.path.exists(lm_model_path)):
             if not check_model_exists(lm_model_path, checkpoints_dir):
                 if lm_model_path in SUBMODEL_REGISTRY:
                     success, msg = ensure_lm_model(lm_model_path, checkpoints_dir=checkpoints_dir)
                     print(msg)
                     if not success:
-                        parser.error(f"Failed to download LM model '{lm_model_path}': {msg}")
+                        raise RuntimeError(f"Failed to download LM model '{lm_model_path}': {msg}")
                 else:
-                    parser.error(
+                    raise RuntimeError(
                         f"LM model '{lm_model_path}' not found locally and not in registry. "
-                        "Please provide a valid --lm_model_path."
+                        "Please provide a valid system.lm_model_path."
                     )
 
-    print(f"Initializing LM handler with model: {args.lm_model_path}")
+    print(f"Initializing LM handler with model: {sys_cfg['lm_model_path']}")
     llm_handler.initialize(
-        checkpoint_dir=args.checkpoint_dir,
-        lm_model_path=args.lm_model_path,
-        backend=args.backend,
+        checkpoint_dir=sys_cfg["checkpoint_dir"],
+        lm_model_path=sys_cfg["lm_model_path"],
+        backend=sys_cfg["backend"],
         device=device,
-        offload_to_cpu=args.offload_to_cpu,
+        offload_to_cpu=sys_cfg["offload_to_cpu"],
         dtype=None,
     )
 
 
 # ---------------------------------------------------------------------------
-# Display helpers (inlined from display.py)
+# Display helpers
 # ---------------------------------------------------------------------------
 
 def _summarize_lyrics(lyrics) -> str:
@@ -306,14 +310,9 @@ def _summarize_lyrics(lyrics) -> str:
 
 
 def _print_final_parameters(
-    args, params, config, params_defaults, config_defaults,
-    compact, resolved_device=None,
+    sys_cfg, params, config, compact, resolved_device=None,
 ) -> None:
     if not compact:
-        print("\n--- Final Parameters (Args) ---")
-        for k in sorted(vars(args).keys()):
-            print(f"{k}: {getattr(args, k)}")
-        print("------------------------------")
         print("\n--- Final Parameters (GenerationParams) ---")
         for k in sorted(vars(params).keys()):
             print(f"{k}: {getattr(params, k)}")
@@ -324,9 +323,9 @@ def _print_final_parameters(
         print("-------------------------------------------\n")
         return
 
-    device_display = args.device
-    if resolved_device and resolved_device != args.device:
-        device_display = f"{args.device} -> {resolved_device}"
+    device_display = str(sys_cfg["device"])
+    if resolved_device and resolved_device != str(sys_cfg["device"]):
+        device_display = f"{sys_cfg['device']} -> {resolved_device}"
 
     print("\n--- Final Parameters (Summary) ---")
     print(f"task_type: {params.task_type}")
@@ -334,20 +333,20 @@ def _print_final_parameters(
     print(f"lyrics: {_summarize_lyrics(params.lyrics)}")
     print(f"duration: {params.duration}s")
     print(f"outputs: {config.batch_size}")
-    if params.bpm not in (None, params_defaults.bpm):
+    if params.bpm is not None:
         print(f"bpm: {params.bpm}")
-    if params.keyscale not in (None, params_defaults.keyscale):
+    if params.keyscale:
         print(f"keyscale: {params.keyscale}")
-    if params.timesignature not in (None, params_defaults.timesignature):
+    if params.timesignature:
         print(f"timesignature: {params.timesignature}")
     print(f"instrumental: {params.instrumental}")
     print(f"thinking: {params.thinking}")
-    print(f"lm_model: {args.lm_model_path or 'auto'}")
-    print(f"dit_model: {args.config_path or 'auto'}")
-    print(f"backend: {args.backend}")
+    print(f"lm_model: {sys_cfg['lm_model_path'] or 'auto'}")
+    print(f"dit_model: {sys_cfg['config_path'] or 'auto'}")
+    print(f"backend: {sys_cfg['backend']}")
     print(f"device: {device_display}")
     print(f"audio_format: {config.audio_format}")
-    print(f"save_dir: {args.save_dir}")
+    print(f"save_dir: {sys_cfg['save_dir']}")
     if config.seeds:
         print(f"seeds: {config.seeds}")
     else:
@@ -389,10 +388,10 @@ def _print_dit_prompt(dit_handler, params) -> None:
 # Generation
 # ---------------------------------------------------------------------------
 
-def _run_generation(args, params, config, dit_handler, llm_handler, log_level_upper) -> None:
+def _run_generation(sys_cfg, params, config, dit_handler, llm_handler, log_level_upper) -> None:
     manual_edit = (
-        args.thinking
-        and args.task_type not in SKIP_LM_TASKS
+        params.thinking
+        and params.task_type not in SKIP_LM_TASKS
         and not (params.audio_codes and str(params.audio_codes).strip())
     )
 
@@ -421,7 +420,7 @@ def _run_generation(args, params, config, dit_handler, llm_handler, log_level_up
             _print_dit_prompt(dit_handler, params)
 
     result = generate_music(
-        dit_handler, llm_handler, params, config, save_dir=args.save_dir,
+        dit_handler, llm_handler, params, config, save_dir=sys_cfg["save_dir"],
     )
 
     # Print results
@@ -432,7 +431,7 @@ def _run_generation(args, params, config, dit_handler, llm_handler, log_level_up
 
     print(
         f"\nGeneration successful! {len(result.audios)} audio(s) "
-        f"saved in '{args.save_dir}/'"
+        f"saved in '{sys_cfg['save_dir']}/'"
     )
     for i, audio in enumerate(result.audios):
         print(f"  [{i + 1}] Path: {audio['path']} | Seed: {audio['params']['seed']}")
@@ -452,7 +451,7 @@ def _run_generation(args, params, config, dit_handler, llm_handler, log_level_up
         print("\n--- Performance ---")
         total = time_costs.get("pipeline_total_time", 0)
         print(f"Total time: {total:.2f}s")
-        if args.thinking:
+        if params.thinking:
             lm1 = time_costs.get("lm_phase1_time", 0)
             lm2 = time_costs.get("lm_phase2_time", 0)
             print(f"  - LM time: {lm1 + lm2:.2f}s")
@@ -461,4 +460,4 @@ def _run_generation(args, params, config, dit_handler, llm_handler, log_level_up
 
 
 if __name__ == "__main__":
-    main()
+    run()
