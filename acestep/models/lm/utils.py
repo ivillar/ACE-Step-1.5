@@ -19,6 +19,22 @@ from acestep.constants import (
 )
 from acestep.models.lm.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 
+__all__ = [
+    "has_all_metas",
+    "_format_metadata_as_cot",
+    "build_formatted_prompt",
+    "build_formatted_prompt_with_cot",
+    "parse_lm_output",
+    "build_formatted_prompt_for_understanding",
+    "understand_audio_from_codes",
+    "_extract_lyrics_from_output",
+    "build_formatted_prompt_for_inspiration",
+    "create_sample_from_query",
+    "build_formatted_prompt_for_format",
+    "format_sample_from_input",
+    "get_hf_model_for_scoring",
+]
+
 
 def has_all_metas(self, user_metadata: dict[str, str | None] | None) -> bool:
     """Check if all required metadata are present."""

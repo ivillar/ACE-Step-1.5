@@ -14,6 +14,32 @@ from acestep.constants import SAMPLE_RATE
 from acestep.env_utils import env_is_truthy
 from acestep.gpu_utils import get_gpu_memory_gb
 
+__all__ = [
+    "_MPS_DECODE_CHUNK_SIZE",
+    "_MPS_DECODE_OVERLAP",
+    "tiled_encode",
+    "_tiled_encode_gpu",
+    "_tiled_encode_offload_cpu",
+    "tiled_decode",
+    "_tiled_decode_cpu_fallback",
+    "_decode_on_cpu",
+    "_tiled_decode_inner",
+    "_tiled_decode_gpu",
+    "_tiled_decode_offload_cpu",
+    "_init_mlx_dit",
+    "_init_mlx_vae",
+    "_resolve_mlx_encode_fn",
+    "_mlx_vae_encode_sample",
+    "_mlx_encode_single",
+    "_resolve_mlx_decode_fn",
+    "_mlx_vae_decode",
+    "_mlx_decode_single",
+    "_normalize_audio_to_stereo_48k",
+    "process_target_audio",
+    "process_reference_audio",
+    "process_src_audio",
+]
+
 # --- From vae_encode.py ---
 
 def tiled_encode(self, audio, chunk_size=None, overlap=None, offload_latent_to_cpu=True):

@@ -14,6 +14,30 @@ from acestep.env_utils import env_is_truthy
 from acestep.gpu_utils import get_effective_free_vram_gb
 from acestep.models.dit.backends.mlx import mlx_generate_diffusion
 
+__all__ = [
+    "generate_music",
+    "_resolve_generate_music_progress",
+    "_validate_generate_music_readiness",
+    "_has_non_empty_audio_codes",
+    "_resolve_generate_music_task",
+    "_prepare_generate_music_runtime",
+    "_prepare_reference_and_source_audio",
+    "_prepare_generate_music_service_inputs",
+    "_run_generate_music_service_with_progress",
+    "_prepare_generate_music_decode_state",
+    "_decode_generate_music_pred_latents",
+    "_build_generate_music_success_payload",
+    "service_generate",
+    "_build_service_seed_list",
+    "_normalize_service_generate_inputs",
+    "_unpack_service_processed_data",
+    "_resolve_service_seed_param",
+    "_build_service_generate_kwargs",
+    "_execute_service_generate_diffusion",
+    "_attach_service_generate_outputs",
+    "_mlx_run_diffusion",
+]
+
 # Module-level code from service_generate_request.py
 MAX_BATCH_SIZE = 8
 

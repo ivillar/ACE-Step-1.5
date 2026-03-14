@@ -6,6 +6,16 @@ import torch
 from loguru import logger
 from tqdm import tqdm
 
+__all__ = [
+    "_is_mlx_available",
+    "_load_mlx_model",
+    "_make_mlx_cache",
+    "_run_mlx_batch_native",
+    "_run_mlx_single_native",
+    "_run_mlx_single",
+    "_run_mlx",
+]
+
 
 def _is_mlx_available() -> bool:
     """Check if MLX framework is available (Apple Silicon).

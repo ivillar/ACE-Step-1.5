@@ -15,6 +15,21 @@ from transformers.generation.streamers import BaseStreamer
 
 from acestep.models.lm.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 
+__all__ = [
+    "_build_logits_processor",
+    "_load_pytorch_model",
+    "_apply_top_k_filter",
+    "_apply_top_p_filter",
+    "_sample_tokens",
+    "_check_eos_token",
+    "_update_constrained_processor_state",
+    "_forward_pass",
+    "_run_pt_single",
+    "_run_pt",
+    "_generate_with_constrained_decoding",
+    "_generate_with_cfg_custom",
+]
+
 
 def _build_logits_processor(self, repetition_penalty: float) -> LogitsProcessorList:
     """Build logits processor list with repetition penalty if needed"""

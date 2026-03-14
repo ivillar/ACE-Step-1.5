@@ -9,6 +9,26 @@ from loguru import logger
 
 from acestep.constants import DEFAULT_DIT_INSTRUCTION, SAMPLE_RATE, SFT_GEN_PROMPT
 
+__all__ = [
+    "_prepare_batch",
+    "infer_refer_latent",
+    "infer_text_embeddings",
+    "infer_lyric_embeddings",
+    "preprocess_batch",
+    "_build_chunk_masks_and_src_latents",
+    "_prepare_precomputed_lm_hints",
+    "_prepare_text_conditioning_inputs",
+    "_prepare_target_latents_and_wavs",
+    "_normalize_audio_code_hints",
+    "_normalize_instructions",
+    "_create_fallback_vocal_languages",
+    "_encode_audio_to_latents",
+    "prepare_batch_data",
+    "_parse_audio_code_string",
+    "_decode_audio_codes_to_latents",
+    "convert_src_audio_to_codes",
+]
+
 # --- From conditioning_batch.py ---
 
 def _prepare_batch(

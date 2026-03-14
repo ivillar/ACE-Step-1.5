@@ -6,6 +6,11 @@ import traceback
 import torch
 from loguru import logger
 
+__all__ = [
+    "_initialize_5hz_lm_vllm",
+    "_run_vllm",
+]
+
 
 def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False) -> str:
     """Initialize 5Hz LM model using vllm backend. When enforce_eager is True, CUDA graph

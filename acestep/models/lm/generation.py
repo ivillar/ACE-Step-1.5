@@ -17,6 +17,16 @@ from acestep.constants import (
 from acestep.models.lm.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.gpu_utils import get_global_gpu_config
 
+__all__ = [
+    "_compute_max_new_tokens",
+    "_has_meaningful_negative_prompt",
+    "_setup_constrained_processor",
+    "_build_unconditional_prompt",
+    "_normalize_batch_input",
+    "generate_with_stop_condition",
+    "generate_from_formatted_prompt",
+]
+
 
 def _compute_max_new_tokens(
     self,
