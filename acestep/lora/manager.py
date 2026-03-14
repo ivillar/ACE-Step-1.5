@@ -1,6 +1,13 @@
-"""LoRA/LoKr adapter load/unload lifecycle management."""
+"""Handler-bound LoRA management: registry, controls, and lifecycle.
+
+All functions in this module take ``self`` as their first argument and are
+assigned onto ``AceStepDiTWrapper`` at class-definition time via utils.py.
+They manage LoRA state directly on ``self.*`` attributes — no intermediate
+facade class.
+"""
 
 import json
+import math
 import os
 from typing import Any
 
@@ -10,8 +17,413 @@ from acestep.constants import DEBUG_MODEL_LOADING
 from acestep.debug_utils import debug_log
 from acestep.training.configs import LoKRConfig
 
+from .ops import (
+    apply_scale_to_adapter as _pure_apply_scale,
+)
+from .ops import (
+    build_lora_registry as _pure_build_registry,
+)
+from .ops import (
+    collect_adapter_names as _pure_collect_names,
+)
+from .ops import (
+    keep_adapter_agnostic_targets,
+)
+
 LOKR_WEIGHTS_FILENAME = "lokr_weights.safetensors"
 
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+def _decoder_from_host(self):
+    model = getattr(self, "model", None)
+    return getattr(model, "decoder", None) if model is not None else None
+
+
+def _copy_registry(registry: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    copied: dict[str, dict[str, Any]] = {}
+    for adapter_name, meta in registry.items():
+        targets: list[dict[str, Any]] = []
+        for target in meta.get("targets", []):
+            target_copy = dict(target)
+            module = target_copy.pop("module", None)
+            if "module_class" not in target_copy:
+                target_copy["module_class"] = module.__class__.__name__ if module is not None else None
+            targets.append(target_copy)
+        copied[adapter_name] = {
+            "path": meta.get("path"),
+            "targets": targets,
+        }
+    return copied
+
+
+# ---------------------------------------------------------------------------
+# Registry state management (replaces registry_state.py + LoraService)
+# ---------------------------------------------------------------------------
+
+def sync_lora_state(self) -> None:
+    """Sync handler-visible snapshots from authoritative state."""
+    self._lora_adapter_registry = _copy_registry(self._lora_registry)
+    self._lora_scale_state = dict(self._lora_scale_state_internal)
+    self._lora_active_adapter = self._lora_active_adapter_internal
+    self._lora_last_scale_report = dict(self._lora_last_scale_report_internal)
+
+
+def ensure_lora_registry(self) -> None:
+    decoder = _decoder_from_host(self)
+
+    if not hasattr(self, "_lora_registry"):
+        self._lora_registry = {}
+    if not hasattr(self, "_lora_scale_state_internal"):
+        self._lora_scale_state_internal = {}
+    if not hasattr(self, "_lora_active_adapter_internal"):
+        self._lora_active_adapter_internal = None
+    if not hasattr(self, "_lora_last_scale_report_internal"):
+        self._lora_last_scale_report_internal = {}
+    if not hasattr(self, "_lora_synthetic_default_mode"):
+        self._lora_synthetic_default_mode = False
+    if not hasattr(self, "_lora_decoder"):
+        self._lora_decoder = None
+
+    self._lora_decoder = decoder
+
+    if not hasattr(self, "_lora_adapter_registry"):
+        self._lora_adapter_registry = {}
+    if not hasattr(self, "_lora_active_adapter"):
+        self._lora_active_adapter = None
+    if not hasattr(self, "_lora_scale_state"):
+        self._lora_scale_state = {}
+    if not hasattr(self, "_active_loras"):
+        self._active_loras = {}
+    if not hasattr(self, "_lora_last_scale_report"):
+        self._lora_last_scale_report = {}
+
+    sync_lora_state(self)
+
+
+def _discover_adapter_names(self) -> list[str]:
+    decoder = self._lora_decoder
+    if decoder is None:
+        return []
+    return [name for name in _pure_collect_names(decoder) if isinstance(name, str) and name]
+
+
+def rebuild_lora_registry(self, lora_path: str | None = None) -> tuple[int, list[str]]:
+    """Build explicit adapter->target mapping used for deterministic scaling."""
+    self._ensure_lora_registry()
+    decoder = self._lora_decoder
+
+    if decoder is None:
+        self._lora_registry = {}
+        self._lora_scale_state_internal = {}
+        self._lora_active_adapter_internal = None
+        self._lora_synthetic_default_mode = False
+        sync_lora_state(self)
+        return 0, []
+
+    adapter_names = _discover_adapter_names(self)
+    synthetic_default = not adapter_names
+    self._lora_synthetic_default_mode = synthetic_default
+    effective_names = adapter_names or ["default"]
+
+    rebuilt_registry, _ = _pure_build_registry(
+        decoder=decoder,
+        adapter_names=effective_names,
+        lora_path=lora_path,
+    )
+    if synthetic_default:
+        rebuilt_registry = keep_adapter_agnostic_targets(rebuilt_registry)
+
+    self._lora_registry = rebuilt_registry
+    self._lora_scale_state_internal = {}
+    total_targets = sum(len(meta.get("targets", [])) for meta in self._lora_registry.values())
+    if self._lora_active_adapter_internal not in self._lora_registry:
+        self._lora_active_adapter_internal = next(iter(self._lora_registry.keys()), None)
+
+    adapters = list(self._lora_registry.keys())
+    sync_lora_state(self)
+
+    if not adapters:
+        logger.warning("No adapter names discovered from decoder; LoRA registry will be empty.")
+        debug_log(
+            "No adapter names discovered; skipping adapter target registration.",
+            mode=DEBUG_MODEL_LOADING,
+            prefix="lora",
+        )
+
+    return total_targets, adapters
+
+
+def debug_lora_registry_snapshot(self, max_targets_per_adapter: int = 20) -> dict[str, Any]:
+    """Return debugger-friendly snapshot of LoRA adapter registry."""
+    self._ensure_lora_registry()
+    adapters: dict[str, Any] = {}
+    for adapter_name, meta in self._lora_registry.items():
+        targets = meta.get("targets", [])
+        entries = []
+        for target in targets[:max_targets_per_adapter]:
+            module = target.get("module")
+            entries.append(
+                {
+                    "kind": target.get("kind"),
+                    "module_name": target.get("module_name"),
+                    "adapter": target.get("adapter"),
+                    "module_class": module.__class__.__name__ if module is not None else None,
+                }
+            )
+        adapters[adapter_name] = {
+            "path": meta.get("path"),
+            "target_count": len(targets),
+            "targets": entries,
+            "truncated": len(targets) > max_targets_per_adapter,
+        }
+    return {
+        "active_adapter": self._lora_active_adapter_internal,
+        "adapter_names": list(self._lora_registry.keys()),
+        "synthetic_default_mode": self._lora_synthetic_default_mode,
+        "adapters": adapters,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Adapter discovery wrapper
+# ---------------------------------------------------------------------------
+
+def collect_adapter_names(self) -> list[str]:
+    """Best-effort adapter name discovery across PEFT runtime variants."""
+    self._ensure_lora_registry()
+    return _discover_adapter_names(self)
+
+
+# ---------------------------------------------------------------------------
+# Scale application wrapper
+# ---------------------------------------------------------------------------
+
+def apply_scale_to_adapter(self, adapter_name: str, scale: float) -> int:
+    """Apply scale to registered targets for one adapter."""
+    self._ensure_lora_registry()
+    modified, report = _pure_apply_scale(
+        registry=self._lora_registry,
+        scale_state=self._lora_scale_state_internal,
+        adapter_name=adapter_name,
+        scale=scale,
+        warn_hook=logger.warning,
+        debug_hook=lambda message: debug_log(message, mode=DEBUG_MODEL_LOADING, prefix="lora"),
+    )
+    self._lora_last_scale_report_internal = report
+    sync_lora_state(self)
+    return modified
+
+
+# ---------------------------------------------------------------------------
+# Controls (replaces controls.py)
+# ---------------------------------------------------------------------------
+
+def _toggle_lokr(decoder, enable: bool, scale: float = 1.0) -> bool:
+    """Toggle a LyCORIS LoKr adapter via its multiplier."""
+    lycoris_net = getattr(decoder, "_lycoris_net", None)
+    if lycoris_net is None:
+        return False
+    set_mul = getattr(lycoris_net, "set_multiplier", None)
+    if not callable(set_mul):
+        return False
+    target = float(scale) if enable else 0.0
+    set_mul(target)
+    logger.info(f"LoKr multiplier set to {target}")
+    return True
+
+
+def set_use_lora(self, use_lora: bool) -> str:
+    """Toggle LoRA/LoKr usage for inference."""
+    if use_lora and not self.lora_loaded:
+        return "❌ No LoRA adapter loaded. Please load a LoRA first."
+
+    self.use_lora = use_lora
+    model = getattr(self, "model", None)
+    decoder = getattr(model, "decoder", None) if model is not None else None
+    if self.lora_loaded and decoder is None:
+        logger.warning("LoRA is marked as loaded, but model/decoder is unavailable during toggle.")
+
+    if self.lora_loaded and decoder is not None:
+        adapter_type = getattr(self, "_adapter_type", None)
+
+        if adapter_type == "lokr":
+            active = getattr(self, "_lora_active_adapter", None)
+            scale = getattr(self, "_active_loras", {}).get(active, 1.0) if active else self.lora_scale
+            toggled = _toggle_lokr(decoder, use_lora, scale=scale)
+            if not toggled:
+                logger.warning("LoKr adapter type set but no _lycoris_net found on decoder")
+
+        elif hasattr(decoder, "disable_adapter_layers"):
+            try:
+                if use_lora:
+                    active = getattr(self, "_lora_active_adapter", None)
+                    if active and hasattr(decoder, "set_adapter"):
+                        try:
+                            decoder.set_adapter(active)
+                        except Exception:
+                            pass
+                    decoder.enable_adapter_layers()
+                    logger.info("LoRA adapter enabled")
+                    scale = getattr(self, "_active_loras", {}).get(active, 1.0)
+                    if active and scale != 1.0:
+                        self.set_lora_scale(active, scale)
+                else:
+                    decoder.disable_adapter_layers()
+                    logger.info("LoRA adapter disabled")
+            except Exception as e:
+                logger.warning(f"Could not toggle adapter layers: {e}")
+
+    adapter_label = "LoKr" if getattr(self, "_adapter_type", None) == "lokr" else "LoRA"
+    status = "enabled" if use_lora else "disabled"
+    return f"✅ {adapter_label} {status}"
+
+
+def set_lora_scale(self, adapter_name_or_scale: str | float, scale: float | None = None) -> str:
+    """Set LoRA scale (0–1). Call as set_lora_scale(scale) or set_lora_scale(adapter_name, scale)."""
+    if not self.lora_loaded:
+        return "⚠️ No LoRA loaded"
+
+    if scale is None:
+        scale_value = adapter_name_or_scale
+        effective_name = None
+    else:
+        effective_name = adapter_name_or_scale if isinstance(adapter_name_or_scale, str) else None
+        scale_value = scale
+
+    try:
+        scale_value = float(scale_value)
+    except (TypeError, ValueError):
+        return "❌ Invalid LoRA scale: please provide a numeric value between 0 and 1."
+    if not math.isfinite(scale_value):
+        return "❌ Invalid LoRA scale: please provide a finite numeric value between 0 and 1."
+
+    scale_value = max(0.0, min(1.0, scale_value))
+    _active_loras = getattr(self, "_active_loras", None) or {}
+    if not effective_name:
+        effective_name = getattr(self, "_lora_active_adapter", None) or (
+            next(iter(_active_loras), None) if _active_loras else None
+        )
+    if not effective_name:
+        return "❌ No adapter specified and no active adapter. Load a LoRA or pass adapter_name."
+
+    self._active_loras[effective_name] = scale_value
+    self.lora_scale = scale_value
+
+    adapter_label = "LoKr" if getattr(self, "_adapter_type", None) == "lokr" else "LoRA"
+
+    if not self.use_lora:
+        logger.info(f"{adapter_label} scale for '{effective_name}' set to {scale_value:.2f} (will apply when enabled)")
+        return f"✅ {adapter_label} scale ({effective_name}): {scale_value:.2f} ({adapter_label} disabled)"
+
+    if getattr(self, "_adapter_type", None) == "lokr":
+        decoder = getattr(getattr(self, "model", None), "decoder", None)
+        if decoder is not None:
+            toggled = _toggle_lokr(decoder, True, scale=scale_value)
+            if toggled:
+                return f"✅ {adapter_label} scale ({effective_name}): {scale_value:.2f}"
+            logger.warning("LoKr adapter type set but no _lycoris_net found for scale")
+        return f"⚠️ {adapter_label} scale set to {scale_value:.2f} (no LyCORIS net found)"
+
+    try:
+        rebuilt_adapters: list[str] | None = None
+        if not getattr(self, "_lora_adapter_registry", None):
+            _, rebuilt_adapters = self._rebuild_lora_registry()
+
+        if rebuilt_adapters is not None:
+            if effective_name not in (rebuilt_adapters or []):
+                return f"❌ Adapter '{effective_name}' not in loaded adapters: {rebuilt_adapters}"
+            active_adapter = self._lora_active_adapter_internal or effective_name
+            if active_adapter != effective_name:
+                if effective_name in self._lora_registry:
+                    self._lora_active_adapter_internal = effective_name
+                    self._lora_active_adapter = effective_name
+                if getattr(self.model, "decoder", None) and hasattr(self.model.decoder, "set_adapter"):
+                    try:
+                        self.model.decoder.set_adapter(effective_name)
+                    except Exception:
+                        pass
+        else:
+            if self._lora_active_adapter_internal is None and self._lora_registry:
+                self._lora_active_adapter_internal = next(iter(self._lora_registry.keys()))
+            self._lora_active_adapter = self._lora_active_adapter_internal
+        sync_lora_state(self)
+        adapter_names = list(self._lora_registry.keys())
+
+        debug_log(
+            lambda: (
+                f"LoRA scale request: adapter={effective_name} scale={scale_value:.3f} "
+                f"adapters={adapter_names}"
+            ),
+            mode=DEBUG_MODEL_LOADING,
+            prefix="lora",
+        )
+
+        modified = self._apply_scale_to_adapter(effective_name, scale_value)
+        report = getattr(self, "_lora_last_scale_report", {})
+        skipped_total = sum(report.get("skipped_by_kind", {}).values())
+
+        if modified > 0:
+            logger.info(
+                f"LoRA scale for '{effective_name}' set to {scale_value:.2f} "
+                f"(modified={modified}, by_kind={report.get('modified_by_kind', {})}, skipped={report.get('skipped_by_kind', {})})"
+            )
+            return (
+                f"✅ LoRA scale ({effective_name}): {scale_value:.2f}"
+                if skipped_total == 0
+                else f"✅ LoRA scale ({effective_name}): {scale_value:.2f} (skipped {skipped_total} targets)"
+            )
+
+        if skipped_total > 0:
+            logger.warning(
+                f"No LoRA targets were modified for adapter '{effective_name}' "
+                f"(skipped={report.get('skipped_by_kind', {})})"
+            )
+            return f"⚠️ LoRA scale unchanged: {scale_value:.2f} (skipped {skipped_total} targets)"
+
+        logger.warning(f"No registered LoRA scaling targets found for adapter '{effective_name}'")
+        return f"⚠️ Scale set to {scale_value:.2f} (no modules found)"
+    except Exception as e:
+        logger.warning(f"Could not set LoRA scale: {e}")
+        return f"⚠️ Scale set to {scale_value:.2f} (partial)"
+
+
+def set_active_lora_adapter(self, adapter_name: str) -> str:
+    """Set the active LoRA adapter for scaling/inference."""
+    self._ensure_lora_registry()
+    if adapter_name not in self._lora_registry:
+        return f"❌ Unknown adapter: {adapter_name}"
+    self._lora_active_adapter_internal = adapter_name
+    self._lora_active_adapter = adapter_name
+    debug_log(f"Selected active LoRA adapter: {adapter_name}", mode=DEBUG_MODEL_LOADING, prefix="lora")
+    if self.model is not None and hasattr(self.model, "decoder") and hasattr(self.model.decoder, "set_adapter"):
+        try:
+            self.model.decoder.set_adapter(adapter_name)
+        except Exception:
+            pass
+    return f"✅ Active LoRA adapter: {adapter_name}"
+
+
+def get_lora_status(self) -> dict[str, Any]:
+    """Get current LoRA status."""
+    self._ensure_lora_registry()
+    _active_loras = getattr(self, "_active_loras", None) or {}
+    return {
+        "loaded": self.lora_loaded,
+        "active": self.use_lora,
+        "scale": self.lora_scale,
+        "scales": dict(_active_loras),
+        "active_adapter": self._lora_active_adapter,
+        "adapters": list(self._lora_registry.keys()),
+        "synthetic_default_mode": self._lora_synthetic_default_mode,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle (replaces lifecycle.py)
+# ---------------------------------------------------------------------------
 
 def _is_lokr_safetensors(weights_path: str) -> bool:
     """Return whether ``weights_path`` looks like a LoKr/LyCORIS safetensors file."""
@@ -43,9 +455,6 @@ def _resolve_lokr_weights_path(adapter_path: str) -> str | None:
         weights_path = os.path.join(adapter_path, LOKR_WEIGHTS_FILENAME)
         if os.path.exists(weights_path):
             return weights_path
-
-        # Backward-compat: support custom LyCORIS safetensors filenames that
-        # carry ``lokr_config`` metadata.
         try:
             entries = os.listdir(adapter_path)
         except OSError:
@@ -161,12 +570,19 @@ def _default_adapter_name_from_path(lora_path: str) -> str:
     return name if name else "default"
 
 
-def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
-    """Load a LoRA adapter into the decoder under the given name.
+def _reset_lora_state(self) -> None:
+    """Clear all LoRA bookkeeping to a clean slate."""
+    self._lora_registry = {}
+    self._lora_scale_state_internal = {}
+    self._lora_active_adapter_internal = None
+    self._lora_last_scale_report_internal = {}
+    self._lora_adapter_registry = {}
+    self._lora_active_adapter = None
+    self._lora_scale_state = {}
 
-    If the decoder is not yet a PeftModel, wraps it and loads the first adapter.
-    If it is already a PeftModel, loads an additional adapter (no base restore).
-    """
+
+def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
+    """Load a LoRA adapter into the decoder under the given name."""
     if self.model is None:
         return "❌ Model not initialized. Please initialize service first."
 
@@ -213,7 +629,6 @@ def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
         is_peft = PeftModel is not None and isinstance(decoder, PeftModel)
 
         if not is_peft:
-            # First LoRA: backup base once, then wrap with PEFT
             if self._base_decoder is None:
                 if hasattr(self, "_memory_allocated"):
                     mem_before = self._memory_allocated() / (1024**3)
@@ -241,7 +656,6 @@ def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
                 )
                 self._adapter_type = "lora"
         else:
-            # Already PEFT: load additional adapter (no base restore). LoKr not supported as second adapter.
             if lokr_weights_path is not None:
                 return "❌ LoKr cannot be added as a second adapter when PEFT is already loaded."
             logger.info(f"Loading additional LoRA from {lora_path} as '{effective_name}'")
@@ -261,9 +675,8 @@ def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
         self._ensure_lora_registry()
         self._lora_active_adapter = None
         target_count, adapters = self._rebuild_lora_registry(lora_path=lora_path)
-        # Set the newly added adapter as active
-        if effective_name in (getattr(self._lora_service, "registry", {}) or {}):
-            self._lora_service.set_active_adapter(effective_name)
+        if effective_name in self._lora_registry:
+            self._lora_active_adapter_internal = effective_name
             self._lora_active_adapter = effective_name
         if hasattr(self.model.decoder, "set_adapter"):
             try:
@@ -296,7 +709,7 @@ def load_lora(self, lora_path: str) -> str:
 
 
 def add_voice_lora(self, lora_path: str, scale: float = 1.0) -> str:
-    """Load a LoRA as the 'voice' adapter and set its scale. Same machinery as style LoRA."""
+    """Load a LoRA as the 'voice' adapter and set its scale."""
     msg = self.add_lora(lora_path, adapter_name="voice")
     if not msg.startswith("✅"):
         return msg
@@ -319,7 +732,6 @@ def remove_lora(self, adapter_name: str) -> str:
 
     decoder = getattr(self.model, "decoder", None)
     if decoder is None or not isinstance(decoder, PeftModel):
-        # Inconsistent state: clear our bookkeeping
         _active_loras.pop(adapter_name, None)
         if not _active_loras:
             self.lora_loaded = False
@@ -339,20 +751,13 @@ def remove_lora(self, adapter_name: str) -> str:
         remaining = list(_active_loras.keys())
 
         if not remaining:
-            # No adapters left: restore base decoder
             if self._base_decoder is None:
                 self.lora_loaded = False
                 self.use_lora = False
                 self._adapter_type = None
                 self._active_loras.clear()
                 self._ensure_lora_registry()
-                self._lora_service.registry = {}
-                self._lora_service.scale_state = {}
-                self._lora_service.active_adapter = None
-                self._lora_service.last_scale_report = {}
-                self._lora_adapter_registry = {}
-                self._lora_active_adapter = None
-                self._lora_scale_state = {}
+                _reset_lora_state(self)
                 return "✅ Last adapter removed; base decoder still wrapped (no backup). Restart or load a new LoRA."
             mem_before = None
             if hasattr(self, "_memory_allocated"):
@@ -371,19 +776,12 @@ def remove_lora(self, adapter_name: str) -> str:
             self._adapter_type = None
             self._active_loras = {}
             self._ensure_lora_registry()
-            self._lora_service.registry = {}
-            self._lora_service.scale_state = {}
-            self._lora_service.active_adapter = None
-            self._lora_service.last_scale_report = {}
-            self._lora_adapter_registry = {}
-            self._lora_active_adapter = None
-            self._lora_scale_state = {}
+            _reset_lora_state(self)
             if mem_before is not None and hasattr(self, "_memory_allocated"):
                 mem_after = self._memory_allocated() / (1024**3)
                 logger.info(f"VRAM after LoRA unload: {mem_after:.2f}GB (freed: {mem_before - mem_after:.2f}GB)")
             logger.info("LoRA unloaded, base decoder restored")
             return "✅ LoRA unloaded, using base model"
-        # Else: set another adapter active and rebuild registry
         next_active = remaining[0]
         if hasattr(decoder, "set_adapter"):
             try:
@@ -393,8 +791,7 @@ def remove_lora(self, adapter_name: str) -> str:
         self._lora_active_adapter = next_active
         self._ensure_lora_registry()
         self._rebuild_lora_registry()
-        self._lora_service.set_active_adapter(next_active)
-        # Re-apply scale for the now-active adapter
+        self._lora_active_adapter_internal = next_active
         scale = self._active_loras.get(next_active, 1.0)
         self._apply_scale_to_adapter(next_active, scale)
         logger.info(f"Adapter '{adapter_name}' removed. Active: {next_active}")
@@ -418,7 +815,6 @@ def unload_lora(self) -> str:
             mem_before = self._memory_allocated() / (1024**3)
             logger.info(f"VRAM before LoRA unload: {mem_before:.2f}GB")
 
-        # If this decoder has an attached LyCORIS net, restore original module graph first.
         lycoris_net = getattr(self.model.decoder, "_lycoris_net", None)
         if lycoris_net is not None:
             restore_fn = getattr(lycoris_net, "restore", None)
@@ -461,13 +857,7 @@ def unload_lora(self) -> str:
         if _active_loras is not None:
             _active_loras.clear()
         self._ensure_lora_registry()
-        self._lora_service.registry = {}
-        self._lora_service.scale_state = {}
-        self._lora_service.active_adapter = None
-        self._lora_service.last_scale_report = {}
-        self._lora_adapter_registry = {}
-        self._lora_active_adapter = None
-        self._lora_scale_state = {}
+        _reset_lora_state(self)
 
         if mem_before is not None and hasattr(self, "_memory_allocated"):
             mem_after = self._memory_allocated() / (1024**3)

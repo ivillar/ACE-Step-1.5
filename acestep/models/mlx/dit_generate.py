@@ -9,7 +9,7 @@ import time
 import numpy as np
 from tqdm import tqdm
 
-from acestep.core.generation.samplers.schedules import cosine_schedule
+from acestep.schedules import cosine_schedule
 
 logger = logging.getLogger(__name__)
 

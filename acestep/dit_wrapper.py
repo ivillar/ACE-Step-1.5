@@ -172,7 +172,7 @@ class AceStepDiTWrapper:
     _calculate_single_lyric_score = utils._calculate_single_lyric_score
     get_lyric_timestamp = utils.get_lyric_timestamp
 
-    # --- LoRA (bound from lora sub-package via utils module) ---
+    # --- LoRA (bound from acestep/lora package via utils module) ---
     _ensure_lora_registry = utils._ensure_lora_registry
     _sync_lora_state_from_service = utils._sync_lora_state_from_service
     _debug_lora_registry_snapshot = utils._debug_lora_registry_snapshot

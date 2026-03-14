@@ -123,7 +123,7 @@ def cosine_schedule(num_steps: int, shift: float = 1.0) -> list[float]:
 
 
 def logsnr_schedule(num_steps: int, sigma_max: float = 1.0) -> list[float]:
-    """Log-SNR–uniform schedule (used by Stable Audio Open for RF models).
+    """Log-SNR-uniform schedule (used by Stable Audio Open for RF models).
 
     Spaces timesteps uniformly in log-SNR space between ``sigma_max`` and 0,
     then converts back to the ``t`` parameterisation via the logistic sigmoid.

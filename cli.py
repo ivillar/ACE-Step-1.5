@@ -40,7 +40,7 @@ from acestep.model_downloader import (  # noqa: E402
     ensure_dit_model, ensure_lm_model, ensure_main_model, get_checkpoints_dir,
 )
 from acestep.cli.pipeline import (  # noqa: E402
-    apply_lm_results, install_prompt_edit_hook, run_lm_generation,
+    apply_lm_results, run_lm_generation,
     run_pre_generation_steps, snapshot_originals,
 )
 
@@ -98,24 +98,6 @@ def run(cfg: DictConfig) -> None:
         sample_query=sample_query,
         use_format=use_format,
     )
-
-    # Setup prompt edit hook
-    if params.thinking and params.task_type not in SKIP_LM_TASKS:
-        project_root = os.path.abspath(sys_cfg["project_root"]) if sys_cfg["project_root"] else os.getcwd()
-        instruction_path = os.path.join(project_root, "instruction.txt")
-        preloaded_prompt = None
-        if sys_cfg["config_path"] and os.path.exists(instruction_path):
-            try:
-                with open(instruction_path, "r", encoding="utf-8") as f:
-                    preloaded_prompt = f.read()
-                print(f"INFO: Found {instruction_path}. Using it without editing.")
-            except Exception as e:
-                print(f"WARNING: Failed to read {instruction_path}: {e}")
-        if preloaded_prompt is not None and not preloaded_prompt.strip():
-            preloaded_prompt = None
-        install_prompt_edit_hook(
-            llm_handler, instruction_path, preloaded_prompt=preloaded_prompt,
-        )
 
     # Print summary
     log_level_upper = str(sys_cfg["log_level"]).upper()
@@ -410,8 +392,6 @@ def _run_generation(sys_cfg, params, config, dit_handler, llm_handler, log_level
         if not lm_result.get("success", False):
             return
         apply_lm_results(params, lm_result, originals)
-        if hasattr(llm_handler, "_skip_prompt_edit"):
-            llm_handler._skip_prompt_edit = False
         if log_level_upper in {"INFO", "DEBUG"}:
             _print_dit_prompt(dit_handler, params)
         print("Running DiT generation with edited prompt and cached audio codes...")

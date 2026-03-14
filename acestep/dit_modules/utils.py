@@ -14,13 +14,25 @@ from loguru import logger
 
 from acestep.constants import DEFAULT_DIT_INSTRUCTION, SAMPLE_RATE, SFT_GEN_PROMPT, TASK_INSTRUCTIONS
 from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config
-
-from .lora.adapter_discovery import collect_adapter_names
-from .lora.controls import get_lora_status, set_active_lora_adapter, set_lora_scale, set_use_lora
-from .lora.lifecycle import add_lora, add_voice_lora, load_lora, remove_lora, unload_lora
-from .lora.registry_builder import rebuild_lora_registry
-from .lora.registry_state import debug_lora_registry_snapshot, ensure_lora_registry, sync_lora_state_from_service
-from .lora.scale_apply import apply_scale_to_adapter
+from acestep.lora.manager import (
+    add_lora,
+    add_voice_lora,
+    apply_scale_to_adapter,
+    collect_adapter_names,
+    debug_lora_registry_snapshot,
+    ensure_lora_registry,
+    get_lora_status,
+    load_lora,
+    rebuild_lora_registry,
+    remove_lora,
+    set_active_lora_adapter,
+    set_lora_scale,
+    set_use_lora,
+    unload_lora,
+)
+from acestep.lora.manager import (
+    sync_lora_state as sync_lora_state_from_service,
+)
 
 # --- From padding_utils.py ---
 
