@@ -636,6 +636,26 @@ def ensure_dit_model(
     return False, f"Unknown DiT model: {model_name}"
 
 
+def ensure_download(fn, *args) -> None:
+    """Call a download function (e.g. ensure_main_model); log its message and raise on failure."""
+    success, msg = fn(*args)
+    logger.info(msg)
+    if not success:
+        raise RuntimeError(msg)
+
+
+def filter_base_models(available: list[str], task_type: str) -> list[str]:
+    """Return only base models from *available* if *task_type* requires it.
+
+    Tasks in the ``BASE_ONLY_TASKS`` set (lego, extract, complete) need a base
+    model.  For other tasks the list is returned unchanged.
+    """
+    _BASE_ONLY_TASKS = {"lego", "extract", "complete"}
+    if task_type in _BASE_ONLY_TASKS and available:
+        return [m for m in available if "base" in m.lower()]
+    return available
+
+
 def print_model_list():
     """Print formatted list of available models."""
     print("\nAvailable Models for Download:")

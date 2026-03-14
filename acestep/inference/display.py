@@ -2,6 +2,8 @@
 
 import os
 
+from loguru import logger
+
 
 def summarize_lyrics(lyrics) -> str:
     """Return a short human-readable summary of lyrics content."""
@@ -19,50 +21,51 @@ def summarize_lyrics(lyrics) -> str:
     return "provided"
 
 
-def print_final_parameters(
+def log_parameters(
     sys_cfg, params, config, compact, resolved_device=None,
 ) -> None:
-    """Print a summary (compact) or full dump (debug) of generation parameters."""
+    """Log a summary (compact) or full dump (debug) of generation parameters."""
     if not compact:
-        print("\n--- Final Parameters (GenerationParams) ---")
+        logger.debug("Final Parameters (GenerationParams):")
         for k in sorted(vars(params).keys()):
-            print(f"{k}: {getattr(params, k)}")
-        print("-------------------------------------------")
-        print("\n--- Final Parameters (GenerationConfig) ---")
+            logger.debug(f"  {k}: {getattr(params, k)}")
+        logger.debug("Final Parameters (GenerationConfig):")
         for k in sorted(vars(config).keys()):
-            print(f"{k}: {getattr(config, k)}")
-        print("-------------------------------------------\n")
+            logger.debug(f"  {k}: {getattr(config, k)}")
         return
 
     device_display = str(sys_cfg["device"])
     if resolved_device and resolved_device != str(sys_cfg["device"]):
         device_display = f"{sys_cfg['device']} -> {resolved_device}"
 
-    print("\n--- Final Parameters (Summary) ---")
-    print(f"task_type: {params.task_type}")
-    print(f"caption: {params.caption or 'none'}")
-    print(f"lyrics: {summarize_lyrics(params.lyrics)}")
-    print(f"duration: {params.duration}s")
-    print(f"outputs: {config.batch_size}")
+    lines = [
+        f"task_type={params.task_type}",
+        f"caption={params.caption or 'none'}",
+        f"lyrics={summarize_lyrics(params.lyrics)}",
+        f"duration={params.duration}s",
+        f"outputs={config.batch_size}",
+    ]
     if params.bpm is not None:
-        print(f"bpm: {params.bpm}")
+        lines.append(f"bpm={params.bpm}")
     if params.keyscale:
-        print(f"keyscale: {params.keyscale}")
+        lines.append(f"keyscale={params.keyscale}")
     if params.timesignature:
-        print(f"timesignature: {params.timesignature}")
-    print(f"instrumental: {params.instrumental}")
-    print(f"thinking: {params.thinking}")
-    print(f"lm_model: {sys_cfg['lm_model_path'] or 'auto'}")
-    print(f"dit_model: {sys_cfg['config_path'] or 'auto'}")
-    print(f"backend: {sys_cfg['backend']}")
-    print(f"device: {device_display}")
-    print(f"audio_format: {config.audio_format}")
-    print(f"save_dir: {sys_cfg['save_dir']}")
+        lines.append(f"timesignature={params.timesignature}")
+    lines += [
+        f"instrumental={params.instrumental}",
+        f"thinking={params.thinking}",
+        f"lm_model={sys_cfg['lm_model_path'] or 'auto'}",
+        f"dit_model={sys_cfg['config_path'] or 'auto'}",
+        f"backend={sys_cfg['backend']}",
+        f"device={device_display}",
+        f"audio_format={config.audio_format}",
+        f"save_dir={sys_cfg['save_dir']}",
+    ]
     if config.seeds:
-        print(f"seeds: {config.seeds}")
+        lines.append(f"seeds={config.seeds}")
     else:
-        print(f"seed: {params.seed} (random={config.use_random_seed})")
-    print("-------------------------------\n")
+        lines.append(f"seed={params.seed} (random={config.use_random_seed})")
+    logger.info("Parameters: " + ", ".join(lines))
 
 
 def build_meta_dict(params):
@@ -79,8 +82,8 @@ def build_meta_dict(params):
     return meta or None
 
 
-def print_dit_prompt(dit_handler, params) -> None:
-    """Print the final DiT prompt for both caption and lyrics branches."""
+def log_dit_prompt(dit_handler, params) -> None:
+    """Log the final DiT prompt for both caption and lyrics branches."""
     meta = build_meta_dict(params)
     caption_input, lyrics_input = dit_handler.build_dit_inputs(
         task=params.task_type,
@@ -90,16 +93,21 @@ def print_dit_prompt(dit_handler, params) -> None:
         metas=meta,
         vocal_language=params.vocal_language or "unknown",
     )
-    print("\n--- Final DiT Prompt (Caption Branch) ---")
-    print(caption_input)
-    print("\n--- Final DiT Prompt (Lyrics Branch) ---")
-    print(lyrics_input)
-    print("----------------------------------------\n")
+    logger.info(f"DiT prompt (caption): {caption_input}")
+    logger.info(f"DiT prompt (lyrics): {lyrics_input}")
 
 
-def merge_time_costs(lm_time_costs, result) -> dict:
-    """Merge LM phase time costs into the generation result's time_costs dict."""
+def log_performance(lm_time_costs, result, used_thinking) -> None:
+    """Merge LM time costs into result and log a performance summary.
+
+    Args:
+        lm_time_costs: LM phase timing dict (may be None if LM was not used).
+        result: The GenerationResult from generate_music.
+        used_thinking: Whether the LM thinking path was active.
+    """
     time_costs = result.extra_outputs.get("time_costs", {})
+
+    # Merge LM phase times into the result dict
     if lm_time_costs and time_costs is not None:
         if not isinstance(time_costs, dict):
             time_costs = {}
@@ -110,4 +118,15 @@ def merge_time_costs(lm_time_costs, result) -> dict:
             time_costs["lm_total_time"] = lm_time_costs["total_time"]
             dit_total = float(time_costs.get("dit_total_time_cost", 0.0) or 0.0)
             time_costs["pipeline_total_time"] = lm_time_costs["total_time"] + dit_total
-    return time_costs
+
+    if not time_costs:
+        return
+
+    total = time_costs.get("pipeline_total_time", 0)
+    parts = [f"total={total:.2f}s"]
+    if used_thinking:
+        lm1 = time_costs.get("lm_phase1_time", 0)
+        lm2 = time_costs.get("lm_phase2_time", 0)
+        parts.append(f"LM={lm1 + lm2:.2f}s")
+    parts.append(f"DiT={time_costs.get('dit_total_time_cost', 0):.2f}s")
+    logger.info("Performance: " + ", ".join(parts))

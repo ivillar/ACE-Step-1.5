@@ -3,6 +3,8 @@
 import re
 from typing import Any
 
+from loguru import logger
+
 from acestep.inference.parsing import parse_description_hints, parse_number
 from acestep.inference.helpers import (
     accumulate_lm_time_costs,
@@ -78,7 +80,7 @@ def _run_sample_mode(params: GenerationParams, llm_handler, sample_query: str) -
     else:
         sample_language = parsed_language
 
-    print("\nINFO: Creating sample via 'create_sample'...")
+    logger.info("Creating sample via 'create_sample'...")
     result = create_sample(
         llm_handler=llm_handler, query=query,
         instrumental=parsed_instrumental, vocal_language=sample_language,
@@ -89,7 +91,7 @@ def _run_sample_mode(params: GenerationParams, llm_handler, sample_query: str) -
         params.instrumental = bool(result.instrumental)
         if params.vocal_language in ("unknown", "", None):
             params.vocal_language = result.language
-        print("Sample created. Using generated parameters.")
+        logger.info("Sample created, using generated parameters")
     else:
         raise RuntimeError(
             f"create_sample failed: {result.error or result.status_message}"
@@ -115,7 +117,7 @@ def _run_format_sample(params: GenerationParams, llm_handler) -> bool:
     if params.vocal_language and params.vocal_language != "unknown":
         user_metadata["language"] = params.vocal_language
 
-    print("\nINFO: Formatting caption/lyrics via 'format_sample'...")
+    logger.info("Formatting caption/lyrics via 'format_sample'...")
     result = format_sample(
         llm_handler=llm_handler,
         caption=params.caption or "", lyrics=params.lyrics or "",
@@ -136,7 +138,7 @@ def _run_format_sample(params: GenerationParams, llm_handler) -> bool:
             params.keyscale = result.keyscale
         if result.timesignature:
             params.timesignature = result.timesignature
-        print("Format complete.")
+        logger.info("Format complete")
         return fmt_has_duration
     else:
         raise RuntimeError(
@@ -151,7 +153,7 @@ def _run_cot_lyrics_generation(params: GenerationParams, llm_handler) -> None:
             "Ensure thinking is enabled."
         )
 
-    print("\nINFO: Generating lyrics and metadata via 'create_sample'...")
+    logger.info("Generating lyrics and metadata via 'create_sample'...")
     result = create_sample(
         llm_handler=llm_handler, query=params.caption,
         instrumental=False,
@@ -162,22 +164,20 @@ def _run_cot_lyrics_generation(params: GenerationParams, llm_handler) -> None:
         top_k=_lm_top_k(params), top_p=_lm_top_p(params),
     )
     if result.success:
-        print("Automatic sample creation successful. Using generated parameters:")
+        logger.info("Automatic sample creation successful, using generated parameters:")
         _apply_sample_result(params, result)
         if params.vocal_language == "unknown":
             params.vocal_language = result.language
         lyrics_preview = params.lyrics[:150].strip().replace("\n", " ")
-        print(f"  - Caption: {params.caption}")
-        print(f"  - Lyrics: '{lyrics_preview}...'")
-        print(
-            f"  - Metadata: BPM={params.bpm}, Key='{params.keyscale}', "
-            f"Lang='{params.vocal_language}'"
-        )
+        logger.info("  Caption: {}", params.caption)
+        logger.info("  Lyrics: '{}...'", lyrics_preview)
+        logger.info("  Metadata: BPM={}, Key='{}', Lang='{}'",
+                     params.bpm, params.keyscale, params.vocal_language)
         params.use_cot_metas = False
         params.use_cot_caption = False
     else:
-        print(f"WARNING: Automatic lyric generation failed: {result.error}")
-        print("         Proceeding with an instrumental track instead.")
+        logger.warning("Automatic lyric generation failed: {}. Proceeding with instrumental track.",
+                       result.error)
         params.lyrics = "[Instrumental]"
         params.instrumental = True
 
@@ -194,19 +194,18 @@ def _edit_formatted_prompt_via_file(formatted_prompt: str, instruction_path: str
         with open(instruction_path, "w", encoding="utf-8") as f:
             f.write(formatted_prompt)
     except Exception as e:
-        print(f"WARNING: Failed to write {instruction_path}: {e}")
+        logger.warning("Failed to write {}: {}", instruction_path, e)
         return formatted_prompt
 
-    print("\n--- Final Draft Saved ---")
-    print(f"Saved to {instruction_path}")
-    print("Edit the file now. Press Enter when ready to continue.")
+    logger.info("Final draft saved to {}. Edit the file now. Press Enter when ready to continue.",
+                 instruction_path)
     input()
 
     try:
         with open(instruction_path, encoding="utf-8") as f:
             return f.read()
     except Exception as e:
-        print(f"WARNING: Failed to read {instruction_path}: {e}")
+        logger.warning("Failed to read {}: {}", instruction_path, e)
         return formatted_prompt
 
 
@@ -328,7 +327,7 @@ def install_prompt_edit_hook(
 
         edited_caption, edited_lyrics = _extract_caption_lyrics(edited)
         if edited != prompt:
-            print("INFO: Using edited draft for audio-token prompt.")
+            logger.info("Using edited draft for audio-token prompt")
             if edited_caption or edited_lyrics:
                 llm_handler._edited_caption = edited_caption
                 llm_handler._edited_lyrics = edited_lyrics
@@ -409,8 +408,7 @@ def run_lm_generation(
 
         if not lm_result.get("success", False):
             error_msg = lm_result.get("error", "Unknown LM error")
-            print(f"\nGeneration failed: {error_msg}")
-            print(f"   Status: {lm_result.get('error', '')}")
+            logger.error("Generation failed: {} ({})", error_msg, lm_result.get("error", ""))
             return {"lm_time_costs": lm_time_costs, "success": False}
 
         if actual_batch_size > 1:
@@ -421,7 +419,7 @@ def run_lm_generation(
             audio_codes = lm_result.get("audio_codes", "")
 
         if not audio_codes:
-            print("WARNING: LM did not return audio codes; proceeding without codes.")
+            logger.warning("LM did not return audio codes; proceeding without codes")
 
         if attempt == 0 and _should_regenerate(llm_handler, params, originals):
             llm_handler._skip_prompt_edit = True
@@ -494,7 +492,7 @@ def _should_regenerate(llm_handler, params, originals) -> bool:
     if expanded_caption and expanded_caption.strip():
         params.caption = expanded_caption
 
-    print("INFO: Edited metadata detected. Regenerating audio codes with updated values.")
+    logger.info("Edited metadata detected, regenerating audio codes with updated values")
     return True
 
 
