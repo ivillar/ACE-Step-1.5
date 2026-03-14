@@ -372,14 +372,8 @@ def run_lm_generation(
     originals: dict[str, Any],
 ) -> dict[str, Any]:
     """Execute the LM generation loop (up to two attempts for metadata edits)."""
-    top_k_value = (
-        None if not params.lm_top_k or params.lm_top_k == 0
-        else int(params.lm_top_k)
-    )
-    top_p_value = (
-        None if not params.lm_top_p or params.lm_top_p >= 1.0
-        else params.lm_top_p
-    )
+    top_k_value = _lm_top_k(params)
+    top_p_value = _lm_top_p(params)
     actual_batch_size = config.batch_size if config.batch_size is not None else 1
     seed_str = format_seed_string(config.seeds)
     actual_seed_list, _ = dit_handler.prepare_seeds(
