@@ -3,14 +3,14 @@
 import re
 from typing import Any
 
-from acestep.cli.parsing import parse_description_hints, parse_number
-from acestep.generation_helpers import (
+from acestep.inference.parsing import parse_description_hints, parse_number
+from acestep.inference.helpers import (
     accumulate_lm_time_costs,
     build_user_metadata,
     format_seed_string,
     safe_parse_metadata_value,
 )
-from acestep.inference import GenerationConfig, GenerationParams, create_sample, format_sample
+from acestep.inference.params import GenerationConfig, GenerationParams, create_sample, format_sample
 
 # ---------------------------------------------------------------------------
 # Pre-generation steps

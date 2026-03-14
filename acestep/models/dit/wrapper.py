@@ -12,13 +12,11 @@ import warnings
 import torch
 
 from acestep.constants import SAMPLE_RATE
-from acestep.dit_modules import (
-    codec,
-    conditioning,
-    generation,
-    init,
-    utils,
-)
+from acestep.models.dit import codec  # noqa: E402 — submodule imports
+from acestep.models.dit import conditioning
+from acestep.models.dit import generation
+from acestep.models.dit import init
+from acestep.models.dit import utils
 from acestep.env_utils import env_is_truthy
 
 warnings.filterwarnings("ignore")

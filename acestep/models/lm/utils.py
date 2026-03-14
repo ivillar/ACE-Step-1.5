@@ -1,16 +1,301 @@
-"""LM task methods: understand, create_sample, format_sample."""
+"""LM utility functions: prompt formatting, output parsing, and task-specific helpers."""
 
+import re
+import time
 from typing import Any
 
 import torch
+import yaml
 from loguru import logger
 from transformers import AutoModelForCausalLM
 
 from acestep.constants import (
+    DEFAULT_LM_INSTRUCTION,
     DEFAULT_LM_INSPIRED_INSTRUCTION,
     DEFAULT_LM_REWRITE_INSTRUCTION,
     DEFAULT_LM_UNDERSTAND_INSTRUCTION,
+    DURATION_MAX,
+    DURATION_MIN,
 )
+from acestep.models.lm.constrained_logits_processor import MetadataConstrainedLogitsProcessor
+
+
+def has_all_metas(self, user_metadata: dict[str, str | None] | None) -> bool:
+    """Check if all required metadata are present."""
+    if user_metadata is None:
+        return False
+    if 'bpm' in user_metadata and 'keyscale' in user_metadata and 'timesignature' in user_metadata and 'duration' in user_metadata:
+        return True
+    return False
+
+
+def _format_metadata_as_cot(self, metadata: dict[str, Any]) -> str:
+    """
+    Format parsed metadata as CoT text using YAML format (matching training format).
+
+    Args:
+        metadata: Dictionary with keys: bpm, caption, duration, keyscale, language, timesignature
+
+    Returns:
+        Formatted CoT text: "<think>\n{yaml_content}\n</think>"
+    """
+    # Build cot_items dict with only non-None values
+    cot_items = {}
+    for key in ['bpm', 'caption', 'duration', 'keyscale', 'language', 'timesignature']:
+        if key in metadata and metadata[key] is not None:
+            value = metadata[key]
+            if key == "timesignature" and value.endswith("/4"):
+                value = value.split("/")[0]
+            if isinstance(value, str) and value.isdigit():
+                value = int(value)
+            cot_items[key] = value
+
+    # Format as YAML (sorted keys, unicode support)
+    if len(cot_items) > 0:
+        cot_yaml = yaml.dump(cot_items, allow_unicode=True, sort_keys=True).strip()
+    else:
+        cot_yaml = ""
+
+    return f"<think>\n{cot_yaml}\n</think>"
+
+
+def build_formatted_prompt(self, caption: str, lyrics: str = "", is_negative_prompt: bool = False, generation_phase: str = "cot", negative_prompt: str = "NO USER INPUT") -> str:
+    """
+    Build the chat-formatted prompt for 5Hz LM from caption/lyrics.
+    Raises a ValueError if the tokenizer is not initialized.
+
+    Args:
+        caption: Caption text
+        lyrics: Lyrics text
+        is_negative_prompt: If True, builds unconditional prompt for CFG
+        generation_phase: "cot" or "codes" - affects unconditional prompt format
+        negative_prompt: Negative prompt for CFG (used when is_negative_prompt=True)
+
+    Example:
+        prompt = handler.build_formatted_prompt("calm piano", "hello world")
+    """
+    if self.llm_tokenizer is None:
+        raise ValueError("LLM tokenizer is not initialized. Call initialize() first.")
+
+    if is_negative_prompt:
+        # Unconditional prompt for CFG
+        # Check if user provided a meaningful negative prompt (not the default)
+        has_negative_prompt = self._has_meaningful_negative_prompt(negative_prompt)
+
+        if generation_phase == "cot":
+            # CoT phase unconditional prompt
+            if has_negative_prompt:
+                # If negative prompt provided, use it as caption
+                prompt = f"# Caption\n{negative_prompt}\n\n# Lyric\n{lyrics}\n"
+            else:
+                # No negative prompt: remove caption, keep only lyrics
+                prompt = f"# Lyric\n{lyrics}\n"
+        else:
+            # Codes phase: will be handled by build_formatted_prompt_with_cot
+            # For backward compatibility, use simple caption as before
+            prompt = caption
+    else:
+        # Conditional prompt: include both caption and lyrics
+        prompt = f"# Caption\n{caption}\n\n# Lyric\n{lyrics}\n"
+
+    return self.llm_tokenizer.apply_chat_template(
+        [
+            {"role": "system", "content": f"# Instruction\n{DEFAULT_LM_INSTRUCTION}\n\n"},
+            {"role": "user", "content": prompt},
+        ],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+
+
+def build_formatted_prompt_with_cot(self, caption: str, lyrics: str, cot_text: str, is_negative_prompt: bool = False, negative_prompt: str = "NO USER INPUT") -> str:
+    """
+    Build the chat-formatted prompt for codes generation phase with pre-generated CoT.
+
+    Args:
+        caption: Caption text
+        lyrics: Lyrics text
+        cot_text: Pre-generated CoT text (e.g., "<think>\\nbpm: 120\\n...\\n</think>")
+        is_negative_prompt: If True, uses empty CoT for CFG unconditional prompt
+        negative_prompt: Negative prompt for CFG (used when is_negative_prompt=True)
+
+    Returns:
+        Formatted prompt string
+
+    Example:
+        cot = "<think>\\nbpm: 120\\ncaption: calm piano\\n...\\n</think>"
+        prompt = handler.build_formatted_prompt_with_cot("calm piano", "hello", cot)
+    """
+    if self.llm_tokenizer is None:
+        raise ValueError("LLM tokenizer is not initialized. Call initialize() first.")
+
+    if is_negative_prompt:
+        # Unconditional prompt for codes phase
+        # Check if user provided a meaningful negative prompt
+        has_negative_prompt = self._has_meaningful_negative_prompt(negative_prompt)
+
+        # Use empty CoT for unconditional
+        cot_for_prompt = "<think>\n</think>"
+
+        if has_negative_prompt:
+            # If negative prompt provided, use it as caption
+            caption_for_prompt = negative_prompt
+        else:
+            # No negative prompt: use original caption
+            caption_for_prompt = caption
+    else:
+        # Conditional prompt: use the full CoT and original caption
+        cot_for_prompt = cot_text
+        caption_for_prompt = caption
+
+    # Build user prompt with caption and lyrics ONLY (no COT)
+    # COT should be in the assistant's message, not user's
+    user_prompt = f"# Caption\n{caption_for_prompt}\n\n# Lyric\n{lyrics}\n"
+
+    # Build the chat with assistant message containing the COT
+    # The model will continue generation after the COT
+    formatted = self.llm_tokenizer.apply_chat_template(
+        [
+            {"role": "system", "content": f"# Instruction\n{DEFAULT_LM_INSTRUCTION}\n\n"},
+            {"role": "user", "content": user_prompt},
+            {"role": "assistant", "content": cot_for_prompt},
+        ],
+        tokenize=False,
+        add_generation_prompt=False,  # Don't add generation prompt, COT is already in assistant
+    )
+
+    # Add a newline after </think> so model generates audio codes on next line
+    if not formatted.endswith('\n'):
+        formatted += '\n'
+
+    return formatted
+
+
+def parse_lm_output(self, output_text: str) -> tuple[dict[str, Any], str]:
+    """
+    Parse LM output to extract metadata and audio codes.
+
+    Expected format:
+    <think>
+    bpm: 73
+    caption: A calm piano melody
+    duration: 273
+    genres: Chinese folk
+    keyscale: G major
+    language: en
+    timesignature: 4
+    </think>
+
+    <|audio_code_56535|><|audio_code_62918|>...
+
+    Returns:
+        Tuple of (metadata_dict, audio_codes_string)
+    """
+    debug_output_text = output_text.split("</think>")[0]
+    logger.debug(f"Debug output text: {debug_output_text}")
+    metadata = {}
+    audio_codes = ""
+
+    # Extract audio codes - find all <|audio_code_XXX|> patterns
+    code_pattern = r'<\|audio_code_\d+\|>'
+    code_matches = re.findall(code_pattern, output_text)
+    if code_matches:
+        audio_codes = "".join(code_matches)
+
+    # Extract metadata from reasoning section
+    # Try different reasoning tag patterns
+    reasoning_patterns = [
+        r'<think>(.*?)</think>',
+        r'<think>(.*?)</think>',
+        r'<reasoning>(.*?)</reasoning>',
+    ]
+
+    reasoning_text = None
+    for pattern in reasoning_patterns:
+        match = re.search(pattern, output_text, re.DOTALL)
+        if match:
+            reasoning_text = match.group(1).strip()
+            break
+
+    # If no reasoning tags found, try to parse metadata from the beginning of output
+    if not reasoning_text:
+        # Look for metadata lines before audio codes
+        lines_before_codes = output_text.split('<|audio_code_')[0] if '<|audio_code_' in output_text else output_text
+        reasoning_text = lines_before_codes.strip()
+
+    # Parse metadata fields with YAML multi-line value support
+    if reasoning_text:
+        lines = reasoning_text.split('\n')
+        current_key = None
+        current_value_lines = []
+
+        def save_current_field():
+            """Save the accumulated field value"""
+            nonlocal current_key, current_value_lines
+            if current_key and current_value_lines:
+                # Join multi-line value
+                value = '\n'.join(current_value_lines)
+
+                if current_key == 'bpm':
+                    try:
+                        metadata['bpm'] = int(value.strip())
+                    except (ValueError, TypeError):
+                        metadata['bpm'] = value.strip()
+                elif current_key == 'caption':
+                    # Post-process caption to remove YAML multi-line formatting
+                    metadata['caption'] = MetadataConstrainedLogitsProcessor.postprocess_caption(value)
+                elif current_key == 'duration':
+                    try:
+                        metadata['duration'] = int(value.strip())
+                    except (ValueError, TypeError):
+                        metadata['duration'] = value.strip()
+                elif current_key == 'genres':
+                    metadata['genres'] = value.strip()
+                elif current_key == 'keyscale':
+                    metadata['keyscale'] = value.strip()
+                elif current_key == 'language':
+                    metadata['language'] = value.strip()
+                    metadata['vocal_language'] = value.strip()
+                elif current_key == 'timesignature':
+                    metadata['timesignature'] = value.strip()
+                elif current_key == 'lyrics':
+                    metadata['lyrics'] = value.strip()
+
+            current_key = None
+            current_value_lines = []
+
+        for line in lines:
+            # Skip lines starting with '<' (tags)
+            if line.strip().startswith('<'):
+                continue
+
+            # Check if this is a new field (no leading spaces and contains ':')
+            if line and not line[0].isspace() and ':' in line:
+                # Save previous field if any
+                save_current_field()
+
+                # Parse new field
+                parts = line.split(':', 1)
+                if len(parts) == 2:
+                    current_key = parts[0].strip().lower()
+                    # First line of value (after colon)
+                    first_value = parts[1]
+                    if first_value.strip():
+                        current_value_lines.append(first_value)
+            elif line.startswith(' ') or line.startswith('\t'):
+                # Continuation line (YAML multi-line value)
+                if current_key:
+                    current_value_lines.append(line)
+
+        # Don't forget to save the last field
+        save_current_field()
+
+    return metadata, audio_codes
+
+
+# ============================================================
+# Task-specific functions (merged from lm_tasks.py)
+# ============================================================
 
 
 def build_formatted_prompt_for_understanding(
@@ -176,8 +461,6 @@ def _extract_lyrics_from_output(self, output_text: str) -> str:
     Returns:
         Extracted lyrics string, or empty string if no lyrics found
     """
-    import re
-
     # Find the </think> tag
     think_end_pattern = r'</think>'
     match = re.search(think_end_pattern, output_text)
@@ -606,7 +889,6 @@ def get_hf_model_for_scoring(self):
 
             # Load HuggingFace model from the same checkpoint
             # This will load the original unfused weights
-            import time
             start_time = time.time()
             self._hf_model_for_scoring = AutoModelForCausalLM.from_pretrained(
                 model_path,
@@ -641,7 +923,6 @@ def get_hf_model_for_scoring(self):
             if model_path is None:
                 raise ValueError("MLX model path not stored. Cannot load HuggingFace model for scoring.")
 
-            import time
             start_time = time.time()
             self._hf_model_for_scoring = AutoModelForCausalLM.from_pretrained(
                 model_path,

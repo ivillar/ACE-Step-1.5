@@ -8,44 +8,50 @@ import sys
 
 import torch
 
-from acestep import lm_core, lm_tasks
-from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
+from acestep.models.lm import init as lm_init  # noqa: E402 — imported as submodule, not from __init__
+from acestep.models.lm import generation as lm_generation
+from acestep.models.lm import utils as lm_utils
+from acestep.models.lm.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.env_utils import env_is_truthy
-from acestep.lm_backends import mlx as mlx_backend
-from acestep.lm_backends import pt as pt_backend
-from acestep.lm_backends import vllm as vllm_backend
+from acestep.models.lm.backends import mlx as mlx_backend
+from acestep.models.lm.backends import pt as pt_backend
+from acestep.models.lm.backends import vllm as vllm_backend
 
 # Module-level constants (from original LLMHandler)
-VRAM_SAFE_FREE_GB = lm_core.VRAM_SAFE_FREE_GB
-IS_HUGGINGFACE_SPACE = lm_core.IS_HUGGINGFACE_SPACE
+VRAM_SAFE_FREE_GB = lm_init.VRAM_SAFE_FREE_GB
+IS_HUGGINGFACE_SPACE = lm_init.IS_HUGGINGFACE_SPACE
 
 
 class AceStepLMWrapper:
     """5Hz LM wrapper for audio code generation."""
 
-    STOP_REASONING_TAG = lm_core.STOP_REASONING_TAG
-    IS_HUGGINGFACE_SPACE = lm_core.IS_HUGGINGFACE_SPACE
+    STOP_REASONING_TAG = lm_init.STOP_REASONING_TAG
+    IS_HUGGINGFACE_SPACE = lm_init.IS_HUGGINGFACE_SPACE
 
-    # --- Core methods (from lm_core) ---
-    unload = lm_core.unload
-    _cleanup_torch_distributed_state = lm_core._cleanup_torch_distributed_state
-    _get_checkpoint_dir = lm_core._get_checkpoint_dir
-    get_available_5hz_lm_models = lm_core.get_available_5hz_lm_models
-    get_gpu_memory_utilization = lm_core.get_gpu_memory_utilization
-    _compute_max_new_tokens = lm_core._compute_max_new_tokens
-    _has_meaningful_negative_prompt = lm_core._has_meaningful_negative_prompt
-    _setup_constrained_processor = lm_core._setup_constrained_processor
-    _build_unconditional_prompt = lm_core._build_unconditional_prompt
-    _normalize_batch_input = lm_core._normalize_batch_input
-    initialize = lm_core.initialize
-    has_all_metas = lm_core.has_all_metas
-    _format_metadata_as_cot = lm_core._format_metadata_as_cot
-    generate_with_stop_condition = lm_core.generate_with_stop_condition
-    build_formatted_prompt = lm_core.build_formatted_prompt
-    build_formatted_prompt_with_cot = lm_core.build_formatted_prompt_with_cot
-    generate_from_formatted_prompt = lm_core.generate_from_formatted_prompt
-    parse_lm_output = lm_core.parse_lm_output
-    _load_model_context = lm_core._load_model_context
+    # --- Init/lifecycle methods ---
+    unload = lm_init.unload
+    _cleanup_torch_distributed_state = lm_init._cleanup_torch_distributed_state
+    _get_checkpoint_dir = lm_init._get_checkpoint_dir
+    get_available_5hz_lm_models = lm_init.get_available_5hz_lm_models
+    get_gpu_memory_utilization = lm_init.get_gpu_memory_utilization
+    initialize = lm_init.initialize
+    _load_model_context = lm_init._load_model_context
+
+    # --- Generation methods ---
+    _compute_max_new_tokens = lm_generation._compute_max_new_tokens
+    _has_meaningful_negative_prompt = lm_generation._has_meaningful_negative_prompt
+    _setup_constrained_processor = lm_generation._setup_constrained_processor
+    _build_unconditional_prompt = lm_generation._build_unconditional_prompt
+    _normalize_batch_input = lm_generation._normalize_batch_input
+    generate_with_stop_condition = lm_generation.generate_with_stop_condition
+    generate_from_formatted_prompt = lm_generation.generate_from_formatted_prompt
+
+    # --- Utility methods ---
+    has_all_metas = lm_utils.has_all_metas
+    _format_metadata_as_cot = lm_utils._format_metadata_as_cot
+    build_formatted_prompt = lm_utils.build_formatted_prompt
+    build_formatted_prompt_with_cot = lm_utils.build_formatted_prompt_with_cot
+    parse_lm_output = lm_utils.parse_lm_output
 
     # --- vLLM backend ---
     _initialize_5hz_lm_vllm = vllm_backend._initialize_5hz_lm_vllm
@@ -75,14 +81,14 @@ class AceStepLMWrapper:
     _run_mlx = mlx_backend._run_mlx
 
     # --- Task methods ---
-    build_formatted_prompt_for_understanding = lm_tasks.build_formatted_prompt_for_understanding
-    understand_audio_from_codes = lm_tasks.understand_audio_from_codes
-    _extract_lyrics_from_output = lm_tasks._extract_lyrics_from_output
-    build_formatted_prompt_for_inspiration = lm_tasks.build_formatted_prompt_for_inspiration
-    create_sample_from_query = lm_tasks.create_sample_from_query
-    build_formatted_prompt_for_format = lm_tasks.build_formatted_prompt_for_format
-    format_sample_from_input = lm_tasks.format_sample_from_input
-    get_hf_model_for_scoring = lm_tasks.get_hf_model_for_scoring
+    build_formatted_prompt_for_understanding = lm_utils.build_formatted_prompt_for_understanding
+    understand_audio_from_codes = lm_utils.understand_audio_from_codes
+    _extract_lyrics_from_output = lm_utils._extract_lyrics_from_output
+    build_formatted_prompt_for_inspiration = lm_utils.build_formatted_prompt_for_inspiration
+    create_sample_from_query = lm_utils.create_sample_from_query
+    build_formatted_prompt_for_format = lm_utils.build_formatted_prompt_for_format
+    format_sample_from_input = lm_utils.format_sample_from_input
+    get_hf_model_for_scoring = lm_utils.get_hf_model_for_scoring
 
     def __init__(self, persistent_storage_path: str | None = None):
         """Initialize LM wrapper with default values."""

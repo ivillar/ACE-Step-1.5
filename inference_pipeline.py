@@ -32,14 +32,14 @@ def _bootstrap():
 
 _bootstrap()
 
-from acestep.dit_wrapper import AceStepDiTWrapper  # noqa: E402
-from acestep.inference import GenerationConfig, GenerationParams, generate_music  # noqa: E402
-from acestep.lm_wrapper import AceStepLMWrapper  # noqa: E402
-from acestep.model_downloader import (  # noqa: E402
+from acestep.models.dit import AceStepDiTWrapper  # noqa: E402
+from acestep.inference.params import GenerationConfig, GenerationParams, generate_music  # noqa: E402
+from acestep.models.lm import AceStepLMWrapper  # noqa: E402
+from acestep.download_utils import (  # noqa: E402
     SUBMODEL_REGISTRY, check_main_model_exists, check_model_exists,
     ensure_dit_model, ensure_lm_model, ensure_main_model, get_checkpoints_dir,
 )
-from acestep.cli.pipeline import (  # noqa: E402
+from acestep.inference.pipeline import (  # noqa: E402
     apply_lm_results, run_lm_generation,
     run_pre_generation_steps, snapshot_originals,
 )

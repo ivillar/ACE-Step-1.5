@@ -13,8 +13,8 @@ import torch
 from loguru import logger
 
 from acestep.constants import DEFAULT_DIT_INSTRUCTION, SAMPLE_RATE, SFT_GEN_PROMPT, TASK_INSTRUCTIONS
-from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config
-from acestep.lora.manager import (
+from acestep.gpu_utils import get_effective_free_vram_gb, get_global_gpu_config
+from acestep.models.dit.lora.manager import (
     add_lora,
     add_voice_lora,
     apply_scale_to_adapter,
@@ -30,7 +30,7 @@ from acestep.lora.manager import (
     set_use_lora,
     unload_lora,
 )
-from acestep.lora.manager import (
+from acestep.models.dit.lora.manager import (
     sync_lora_state as sync_lora_state_from_service,
 )
 

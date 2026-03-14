@@ -15,7 +15,7 @@ def _is_mlx_available() -> bool:
     first load (which causes a fatal nanobind duplicate-enum crash).
     """
     try:
-        from acestep.models.mlx import mlx_available
+        from acestep.env_utils import mlx_available
         if not mlx_available():
             return False
         return True
@@ -208,7 +208,7 @@ def _run_mlx_batch_native(
     prefill_step_size = 2048
 
     # ---- Pre-convert constrained masks to MLX (shared by all items) ----
-    from acestep.constrained_logits_processor import FSMState
+    from acestep.models.lm.constrained_logits_processor import FSMState
     _mlx_non_audio_mask = None
     _mlx_eos_id = None
     _target_codes = None
@@ -583,7 +583,7 @@ def _run_mlx_single_native(
     # ---- Pre-convert constrained processor masks to MLX (one-time) ----
     # This enables native MLX fast-path for CODES_GENERATION state,
     # eliminating the PyTorch bridge for 99%+ of Phase 2 tokens.
-    from acestep.constrained_logits_processor import FSMState
+    from acestep.models.lm.constrained_logits_processor import FSMState
     _mlx_non_audio_mask = None
     _mlx_eos_id = None
     _target_codes = None

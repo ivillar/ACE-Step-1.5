@@ -11,8 +11,8 @@ from loguru import logger
 
 from acestep.constants import DEFAULT_DIT_INSTRUCTION, TASK_INSTRUCTIONS
 from acestep.env_utils import env_is_truthy
-from acestep.gpu_config import get_effective_free_vram_gb
-from acestep.models.mlx.dit_generate import mlx_generate_diffusion
+from acestep.gpu_utils import get_effective_free_vram_gb
+from acestep.models.dit.backends.mlx import mlx_generate_diffusion
 
 # Module-level code from service_generate_request.py
 MAX_BATCH_SIZE = 8

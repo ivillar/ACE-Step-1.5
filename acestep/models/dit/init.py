@@ -10,8 +10,8 @@ from typing import Any
 import torch
 from loguru import logger
 
-from acestep import gpu_config
-from acestep.model_downloader import (
+from acestep import gpu_utils as gpu_config
+from acestep.download_utils import (
     check_main_model_exists,
     check_model_exists,
     ensure_dit_model,
@@ -286,7 +286,7 @@ def _ensure_models_present(
 @staticmethod
 def _sync_model_code_if_needed(config_path: str, checkpoint_path: Path) -> None:
     """Sync model-side python files when checkpoint code metadata diverges."""
-    from acestep.model_downloader import _check_code_mismatch, _sync_model_code_files
+    from acestep.download_utils import _check_code_mismatch, _sync_model_code_files
 
     mismatched = _check_code_mismatch(config_path, checkpoint_path)
     if mismatched:

@@ -13,7 +13,7 @@ from transformers.generation.logits_process import (
 )
 from transformers.generation.streamers import BaseStreamer
 
-from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
+from acestep.models.lm.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 
 
 def _build_logits_processor(self, repetition_penalty: float) -> LogitsProcessorList:

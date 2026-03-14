@@ -46,6 +46,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
 sidestep = [
     "rich>=13.0.0",
     "textual>=0.47.0",

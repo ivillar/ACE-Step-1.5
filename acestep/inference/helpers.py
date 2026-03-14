@@ -7,7 +7,7 @@ and the inference API (``acestep/inference.py``).
 
 from typing import Any
 
-from acestep.cli.parsing import parse_number
+from acestep.inference.parsing import parse_number
 
 
 def build_user_metadata(

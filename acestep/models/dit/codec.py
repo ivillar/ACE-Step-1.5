@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from acestep.constants import SAMPLE_RATE
 from acestep.env_utils import env_is_truthy
-from acestep.gpu_config import get_gpu_memory_gb
+from acestep.gpu_utils import get_gpu_memory_gb
 
 # --- From vae_encode.py ---
 
@@ -465,7 +465,7 @@ def _init_mlx_dit(self, compile_model: bool = False) -> bool:
         bool: ``True`` when MLX DiT is initialized successfully, else ``False``.
     """
     try:
-        from acestep.models.mlx import mlx_available
+        from acestep.env_utils import mlx_available
 
         if not mlx_available():
             logger.info("[MLX-DiT] MLX not available on this platform; skipping.")
@@ -515,7 +515,7 @@ def _init_mlx_vae(self) -> bool:
         non-fatal.
     """
     try:
-        from acestep.models.mlx import mlx_available
+        from acestep.env_utils import mlx_available
 
         if not mlx_available():
             logger.info("[MLX-VAE] MLX not available on this platform; skipping.")

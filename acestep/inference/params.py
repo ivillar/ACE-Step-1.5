@@ -16,7 +16,7 @@ from loguru import logger
 
 from acestep.audio_utils import AudioSaver, generate_uuid_from_params, get_lora_weights_hash, normalize_audio
 from acestep.constants import SAMPLE_RATE
-from acestep.generation_helpers import (
+from acestep.inference.helpers import (
     accumulate_lm_time_costs,
     build_user_metadata,
     format_seed_string,
