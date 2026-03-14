@@ -5,13 +5,12 @@ Contains dataclasses for LoRA and training configurations.
 """
 
 from dataclasses import dataclass, field
-from typing import List
 
 
 @dataclass
 class LoRAConfig:
     """Configuration for LoRA (Low-Rank Adaptation) training.
-    
+
     Attributes:
         r: LoRA rank (dimension of low-rank matrices)
         alpha: LoRA scaling factor (alpha/r determines the scaling)
@@ -22,11 +21,11 @@ class LoRAConfig:
     r: int = 8
     alpha: int = 16
     dropout: float = 0.1
-    target_modules: List[str] = field(default_factory=lambda: [
+    target_modules: list[str] = field(default_factory=lambda: [
         "q_proj", "k_proj", "v_proj", "o_proj"
     ])
     bias: str = "none"
-    
+
     def to_dict(self):
         """Convert to dictionary for PEFT config."""
         return {
@@ -49,7 +48,7 @@ class LoKRConfig:
     use_tucker: bool = False
     use_scalar: bool = False
     weight_decompose: bool = False
-    target_modules: List[str] = field(default_factory=lambda: [
+    target_modules: list[str] = field(default_factory=lambda: [
         "q_proj", "k_proj", "v_proj", "o_proj"
     ])
     full_matrix: bool = False
@@ -78,13 +77,13 @@ class LoKRConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for LoRA training process.
-    
+
     Training uses:
     - Device-aware mixed precision (bf16 on CUDA/XPU, fp16 on MPS, fp32 on CPU)
     - Discrete timesteps from turbo shift=3.0 schedule (8 steps)
     - Randomly samples one of 8 timesteps per training step:
       [1.0, 0.9545, 0.9, 0.8333, 0.75, 0.6429, 0.5, 0.3]
-    
+
     Attributes:
         shift: Timestep shift factor (fixed at 3.0 for turbo model)
         num_inference_steps: Number of inference steps (fixed at 8 for turbo)
@@ -116,14 +115,14 @@ class TrainingConfig:
     gradient_checkpointing: bool = False
     seed: int = 42
     output_dir: str = "./lora_output"
-    
+
     # Data loading
     num_workers: int = 4
     pin_memory: bool = True
     prefetch_factor: int = 2
     persistent_workers: bool = True
     pin_memory_device: str = ""
-    
+
     # Logging
     log_every_n_steps: int = 10
 

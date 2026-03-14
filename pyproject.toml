@@ -30,6 +30,7 @@ dependencies = [
     "torchao>=0.14.1,<0.16.0; platform_machine != 'aarch64'",
     "torchao; platform_machine == 'aarch64'",
     "toml",
+    "hydra-core>=1.3",
     "modelscope",
     "tensorboard>=2.20.0",
     "typer-slim>=0.21.1",
@@ -45,6 +46,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
 sidestep = [
     "rich>=13.0.0",
     "textual>=0.47.0",
@@ -92,3 +96,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["acestep"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["acestep/third_parts"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B"]
+ignore = ["E501", "E741", "B905"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+exclude = ["acestep/third_parts", "acestep/models"]
+reportMissingImports = false
+reportMissingModuleSource = false

@@ -4,6 +4,14 @@ Centralized constants used across the codebase
 """
 
 # ==============================================================================
+# Audio Constants
+# ==============================================================================
+
+# Standard audio sample rate used throughout the pipeline (48 kHz)
+SAMPLE_RATE = 48000
+
+
+# ==============================================================================
 # Language Constants
 # ==============================================================================
 
@@ -60,14 +68,14 @@ DURATION_MAX = 600
 
 # Valid time signatures - common musical meter patterns
 # 2: 2/4 time (marches, polka)
-# 3: 3/4 time (waltzes, ballads) 
+# 3: 3/4 time (waltzes, ballads)
 # 4: 4/4 time (most pop, rock, hip-hop)
 # 6: 6/8 time (compound time, folk dances)
 VALID_TIME_SIGNATURES = [2, 3, 4, 6]
 
 
 # ==============================================================================
-# Task Type Constants  
+# Task Type Constants
 # ==============================================================================
 
 # All supported generation tasks across different model variants
@@ -75,7 +83,7 @@ TASK_TYPES = ["text2music", "repaint", "cover", "extract", "lego", "complete"]
 
 # Task types available for turbo models (optimized subset for speed)
 # - text2music: Generate from text descriptions
-# - repaint: Selective audio editing/regeneration  
+# - repaint: Selective audio editing/regeneration
 # - cover: Style transfer using reference audio
 TASK_TYPES_TURBO = ["text2music", "repaint", "cover"]
 
@@ -143,7 +151,7 @@ TASK_INSTRUCTIONS = {
 # Supported instrumental track types for multi-track generation and extraction
 # Organized by instrument families for logical grouping:
 # - Wind instruments: woodwinds, brass
-# - Electronic: fx (effects), synth (synthesizer)  
+# - Electronic: fx (effects), synth (synthesizer)
 # - String instruments: strings, guitar, bass
 # - Rhythm section: percussion, drums, keyboard
 # - Vocals: backing_vocals, vocals (lead vocals)

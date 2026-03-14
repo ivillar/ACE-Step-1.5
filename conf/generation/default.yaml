@@ -1,0 +1,7 @@
+batch_size: 1
+allow_lm_batch: false
+use_random_seed: true
+seeds: null
+lm_batch_chunk_size: 8
+constrained_decoding_debug: false
+audio_format: wav

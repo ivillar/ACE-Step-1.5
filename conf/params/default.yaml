@@ -1,0 +1,67 @@
+# Text Inputs
+task_type: text2music
+instruction: "Fill the audio semantic mask based on the given conditions:"
+caption: "Chill Afrobeats with female vocals"
+lyrics: ""
+instrumental: false
+
+# Audio Uploads
+reference_audio: null
+src_audio: null
+
+# LM Codes Hints
+audio_codes: ""
+
+# Metadata
+vocal_language: en
+bpm: 100
+keyscale: "C Major"
+timesignature: "4/4"
+duration: 210.0
+
+# Audio Post-Processing
+enable_normalization: true
+normalization_db: -1.0
+
+# Latent Post-Processing
+latent_shift: 0.0
+latent_rescale: 1.0
+
+# Advanced Settings
+inference_steps: 8
+seed: -1
+guidance_scale: 7.0
+use_adg: false
+cfg_interval_start: 0.0
+cfg_interval_end: 1.0
+shift: 3.0
+infer_method: auraflow
+noise_schedule: linear
+timesteps: null
+
+repainting_start: 0.0
+repainting_end: -1
+audio_cover_strength: 1.0
+cover_noise_strength: 0.0
+
+# 5Hz Language Model Parameters
+thinking: true
+lm_temperature: 0.85
+lm_cfg_scale: 2.0
+lm_top_k: 0
+lm_top_p: 0.9
+lm_negative_prompt: "NO USER INPUT"
+use_cot_metas: true
+use_cot_caption: true
+use_cot_lyrics: true
+use_cot_language: true
+use_constrained_decoding: true
+
+# CoT output fields (usually left at defaults)
+cot_bpm: null
+cot_keyscale: ""
+cot_timesignature: ""
+cot_duration: null
+cot_vocal_language: unknown
+cot_caption: ""
+cot_lyrics: ""
