@@ -16,6 +16,7 @@ import torch
 from loguru import logger
 from transformers import AutoTokenizer
 
+from acestep.download_utils import get_checkpoints_dir, check_model_exists, ensure_download, ensure_lm_model, SUBMODEL_REGISTRY
 from acestep.env_utils import env_is_truthy
 from acestep.gpu_utils import get_global_gpu_config, get_gpu_memory_gb, get_lm_gpu_memory_ratio
 from acestep.models.lm import generation as lm_generation
@@ -49,8 +50,17 @@ class AceStepLMWrapper:
     STOP_REASONING_TAG = STOP_REASONING_TAG
     IS_HUGGINGFACE_SPACE = IS_HUGGINGFACE_SPACE
 
-    def __init__(self, persistent_storage_path: str | None = None):
-        """Initialize LM wrapper with default values."""
+    def __init__(
+        self,
+        checkpoint_dir: str | None = None,
+        lm_model_path: str | None = None,
+        backend: str = "vllm",
+        device: str = "auto",
+        offload_to_cpu: bool = False,
+        dtype: torch.dtype | None = None,
+        persistent_storage_path: str | None = None,
+    ):
+        """Initialize LM wrapper with default values, optionally loading a model."""
         self.llm = None
         self.llm_tokenizer = None
         self.llm_initialized = False
@@ -78,6 +88,16 @@ class AceStepLMWrapper:
         # MLX model reference (used when llm_backend == "mlx")
         self._mlx_model = None
         self._mlx_model_path = None
+
+        if checkpoint_dir is not None:
+            self.load_model(
+                checkpoint_dir=checkpoint_dir,
+                lm_model_path=lm_model_path,
+                backend=backend,
+                device=device,
+                offload_to_cpu=offload_to_cpu,
+                dtype=dtype,
+            )
 
     # =====================================================================
     # Init / lifecycle methods (inlined from lm/init.py)
@@ -191,17 +211,45 @@ class AceStepLMWrapper:
             logger.warning(f"Failed to calculate GPU memory utilization: {e}")
             return 0.9, False
 
-    def initialize(
+    def load_model(
         self,
         checkpoint_dir: str,
-        lm_model_path: str,
+        lm_model_path: str | None = None,
         backend: str = "vllm",
         device: str = "auto",
         offload_to_cpu: bool = False,
         dtype: torch.dtype | None = None,
     ) -> tuple[str, bool]:
-        """Initialize 5Hz LM model."""
+        """Resolve model path (downloading if needed) and initialize the 5Hz LM."""
         try:
+            # --- Model path resolution ---
+            checkpoints_dir = get_checkpoints_dir(checkpoint_dir)
+
+            if lm_model_path is None:
+                available = self.get_available_5hz_lm_models(checkpoints_dir)
+                if not available:
+                    ensure_download(ensure_lm_model, checkpoints_dir)
+                    available = self.get_available_5hz_lm_models(checkpoints_dir)
+                if not available:
+                    raise RuntimeError(
+                        "No LM models available. Please specify lm_model_path "
+                        "or disable params.thinking."
+                    )
+                lm_model_path = available[0]
+                logger.info("Using default LM model: {}", lm_model_path)
+            else:
+                lm_model_path = str(lm_model_path)
+                if not (os.path.isabs(lm_model_path) and os.path.exists(lm_model_path)):
+                    if not check_model_exists(lm_model_path, checkpoints_dir):
+                        if lm_model_path in SUBMODEL_REGISTRY:
+                            ensure_download(ensure_lm_model, lm_model_path, checkpoints_dir)
+                        else:
+                            raise RuntimeError(
+                                f"LM model '{lm_model_path}' not found locally and not in registry. "
+                                "Please provide a valid lm_model_path."
+                            )
+
+            logger.info("Initializing LM wrapper with model: {}", lm_model_path)
             if device == "auto":
                 if torch.cuda.is_available():
                     device = "cuda"
@@ -263,11 +311,6 @@ class AceStepLMWrapper:
                         f"[initialize] Overriding requested dtype {self.dtype} to float32 for LM on MPS."
                     )
                     self.dtype = torch.float32
-
-            # If lm_model_path is None, use default
-            if lm_model_path is None:
-                lm_model_path = "acestep-5Hz-lm-1.7B"
-                logger.info(f"[initialize] lm_model_path is None, using default: {lm_model_path}")
 
             full_lm_model_path = os.path.join(checkpoint_dir, lm_model_path)
             if not os.path.exists(full_lm_model_path):

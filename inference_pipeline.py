@@ -62,44 +62,6 @@ def requires_lm(params, sample_mode, sample_query, use_format) -> bool:
         or params.use_cot_language
     )
 
-def initialize_lm(sys_cfg, llm_wrapper, device) -> None:
-    checkpoints_dir = acestep.download_utils.get_checkpoints_dir(sys_cfg["checkpoint_dir"])
-    lm_path = sys_cfg["lm_model_path"]
-
-    if lm_path is None:
-        available = llm_wrapper.get_available_5hz_lm_models(checkpoints_dir)
-        if not available:
-            acestep.download_utils.ensure_download(acestep.download_utils.ensure_lm_model, checkpoints_dir)
-            available = llm_wrapper.get_available_5hz_lm_models()
-        if not available:
-            raise RuntimeError(
-                "No LM models available. Please specify system.lm_model_path "
-                "or disable params.thinking."
-            )
-        sys_cfg["lm_model_path"] = available[0]
-        logger.info("Using default LM model: {}", sys_cfg["lm_model_path"])
-    else:
-        lm_path = str(lm_path)
-        if not (os.path.isabs(lm_path) and os.path.exists(lm_path)):
-            if not acestep.download_utils.check_model_exists(lm_path, checkpoints_dir):
-                if lm_path in acestep.download_utils.SUBMODEL_REGISTRY:
-                    acestep.download_utils.ensure_download(acestep.download_utils.ensure_lm_model, lm_path, checkpoints_dir)
-                else:
-                    raise RuntimeError(
-                        f"LM model '{lm_path}' not found locally and not in registry. "
-                        "Please provide a valid system.lm_model_path."
-                    )
-
-    logger.info("Initializing LM wrapper with model: {}", sys_cfg["lm_model_path"])
-    llm_wrapper.initialize(
-        checkpoint_dir=sys_cfg["checkpoint_dir"],
-        lm_model_path=sys_cfg["lm_model_path"],
-        backend=sys_cfg["backend"],
-        device=device,
-        offload_to_cpu=sys_cfg["offload_to_cpu"],
-        dtype=None,
-    )
-
 def run_generation(sys_cfg, params, config, dit_wrapper, llm_wrapper, log_level_upper, manual_edit) -> None:
     lm_time_costs = None
     if manual_edit:
@@ -147,11 +109,9 @@ def run(cfg: DictConfig) -> None:
     params = GenerationParams(**OmegaConf.to_container(cfg.params, resolve=True))
     config = GenerationConfig(**OmegaConf.to_container(cfg.generation, resolve=True))
 
-    sample_mode = bool(cfg.sample_mode)
-    sample_query = str(cfg.sample_query) if cfg.sample_query else ""
-    use_format = bool(cfg.use_format)
-
-    llm_wrapper = AceStepLMWrapper()
+    sample_mode = cfg.sample_mode
+    sample_query = cfg.sample_query if cfg.sample_query else ""
+    use_format = cfg.use_format
 
     resolve_config_path(sys_cfg, params.task_type)
     logger.info("Initializing DiT wrapper with model: {}", sys_cfg["config_path"])
@@ -166,13 +126,21 @@ def run(cfg: DictConfig) -> None:
     )
 
     if requires_lm(params, sample_mode, sample_query, use_format):
-        initialize_lm(sys_cfg, llm_wrapper, device)
-    elif params.task_type in SKIP_LM_TASKS:
-        logger.info("LM not required for task_type '{}', skipping", params.task_type)
+        llm_wrapper = AceStepLMWrapper(
+            checkpoint_dir=sys_cfg["checkpoint_dir"],
+            lm_model_path=sys_cfg["lm_model_path"],
+            backend=sys_cfg["backend"],
+            device=device,
+            offload_to_cpu=sys_cfg["offload_to_cpu"],
+        )
     else:
-        logger.info("LM thinking disabled, skipping LM wrapper initialization")
+        llm_wrapper = None
+        if params.task_type in SKIP_LM_TASKS:
+            logger.info("LM not required for task_type '{}', skipping", params.task_type)
+        else:
+            logger.info("LM thinking disabled, skipping LM wrapper initialization")
 
-    logger.info("wrappers initialized")
+    logger.info("Wrapper(s) initialized")
 
     acestep.inference.pipeline.run_pre_generation_steps(
         params, llm_wrapper,

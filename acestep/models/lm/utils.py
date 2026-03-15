@@ -408,9 +408,6 @@ def understand_audio_from_codes(
         print(metadata['caption'])  # "A cinematic orchestral piece..."
         print(metadata['lyrics'])   # "[Intro: ...]\\n..."
     """
-    if not getattr(self, "llm_initialized", False):
-        return {}, "❌ 5Hz LM not initialized. Please initialize it first."
-
     if not audio_codes or not audio_codes.strip():
         return {}, "❌ No audio codes provided. Please paste audio codes first."
 
@@ -605,8 +602,6 @@ def create_sample_from_query(
         print(metadata['caption'])  # "A gentle romantic acoustic pop ballad..."
         print(metadata['lyrics'])   # "[Intro: ...]\\n..."
     """
-    if not getattr(self, "llm_initialized", False):
-        return {}, "❌ 5Hz LM not initialized. Please initialize it first."
 
     if not query or not query.strip():
         query = "NO USER INPUT"
@@ -783,8 +778,6 @@ def format_sample_from_input(
         print(metadata['caption'])  # "A dramatic and powerful Latin pop track..."
         print(metadata['bpm'])      # 100
     """
-    if not getattr(self, "llm_initialized", False):
-        return {}, "❌ 5Hz LM not initialized. Please initialize it first."
 
     if not caption or not caption.strip():
         caption = "NO USER INPUT"
