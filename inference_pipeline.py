@@ -3,26 +3,15 @@
 import os
 import sys
 
-# --- Loguru setup (must run before acestep imports that use loguru) ---
 from loguru import logger
-import hydra  # noqa: E402
-from omegaconf import DictConfig, OmegaConf  # noqa: E402
-
-from acestep.models.dit import AceStepDiTWrapper  # noqa: E402
-from acestep.inference.params import GenerationConfig, GenerationParams, generate_music  # noqa: E402
-from acestep.models.lm import AceStepLMWrapper  # noqa: E402
-from acestep.download_utils import (  # noqa: E402
-    SUBMODEL_REGISTRY, check_main_model_exists, check_model_exists,
-    ensure_dit_model, ensure_download, ensure_lm_model, ensure_main_model,
-    filter_base_models, get_checkpoints_dir,
-)
-from acestep.inference.pipeline import (  # noqa: E402
-    apply_lm_results, run_lm_generation,
-    run_pre_generation_steps, snapshot_originals,
-)
-from acestep.inference.display import (  # noqa: E402
-    log_dit_prompt, log_parameters, log_performance,
-)
+import hydra
+from omegaconf import DictConfig, OmegaConf 
+from acestep.models.dit import AceStepDiTWrapper
+from acestep.inference.params import GenerationConfig, GenerationParams, generate_music
+from acestep.models.lm import AceStepLMWrapper
+import acestep.download_utils
+import acestep.inference.pipeline
+import acestep.inference.display
 
 logger.remove()
 logger.add(sys.stderr, level="INFO",
@@ -43,16 +32,16 @@ def resolve_config_path(sys_cfg, task_type) -> None:
             "(e.g., 'acestep-v15-base')."
         )
 
-    if not check_main_model_exists(checkpoints_dir):
+    if not acestep.download_utils.check_main_model_exists(checkpoints_dir):
         logger.info("Main model components not found, downloading...")
-        ensure_download(ensure_main_model, checkpoints_dir)
+        acestep.download_utils.ensure_download(acestep.download_utils.ensure_main_model, checkpoints_dir)
 
     config_name = str(sys_cfg["config_path"])
-    known_models = {"acestep-v15-turbo"} | set(SUBMODEL_REGISTRY.keys())
-    if check_model_exists(config_name, checkpoints_dir):
+    known_models = {"acestep-v15-turbo"} | set(acestep.download_utils.SUBMODEL_REGISTRY.keys())
+    if acestep.download_utils.check_model_exists(config_name, checkpoints_dir):
         pass
     elif config_name in known_models:
-        ensure_download(ensure_dit_model, config_name, checkpoints_dir)
+        acestep.download_utils.ensure_download(acestep.download_utils.ensure_dit_model, config_name, checkpoints_dir)
     else:
         logger.warning(
             "DiT model '{}' not found locally and not in registry, skipping auto-download",
@@ -74,13 +63,13 @@ def requires_lm(params, sample_mode, sample_query, use_format) -> bool:
     )
 
 def initialize_lm(sys_cfg, llm_wrapper, device) -> None:
-    checkpoints_dir = get_checkpoints_dir(sys_cfg["checkpoint_dir"])
+    checkpoints_dir = acestep.download_utils.get_checkpoints_dir(sys_cfg["checkpoint_dir"])
     lm_path = sys_cfg["lm_model_path"]
 
     if lm_path is None:
         available = llm_wrapper.get_available_5hz_lm_models(checkpoints_dir)
         if not available:
-            ensure_download(ensure_lm_model, checkpoints_dir)
+            acestep.download_utils.ensure_download(acestep.download_utils.ensure_lm_model, checkpoints_dir)
             available = llm_wrapper.get_available_5hz_lm_models()
         if not available:
             raise RuntimeError(
@@ -92,9 +81,9 @@ def initialize_lm(sys_cfg, llm_wrapper, device) -> None:
     else:
         lm_path = str(lm_path)
         if not (os.path.isabs(lm_path) and os.path.exists(lm_path)):
-            if not check_model_exists(lm_path, checkpoints_dir):
-                if lm_path in SUBMODEL_REGISTRY:
-                    ensure_download(ensure_lm_model, lm_path, checkpoints_dir)
+            if not acestep.download_utils.check_model_exists(lm_path, checkpoints_dir):
+                if lm_path in acestep.download_utils.SUBMODEL_REGISTRY:
+                    acestep.download_utils.ensure_download(acestep.download_utils.ensure_lm_model, lm_path, checkpoints_dir)
                 else:
                     raise RuntimeError(
                         f"LM model '{lm_path}' not found locally and not in registry. "
@@ -114,18 +103,18 @@ def initialize_lm(sys_cfg, llm_wrapper, device) -> None:
 def run_generation(sys_cfg, params, config, dit_wrapper, llm_wrapper, log_level_upper, manual_edit) -> None:
     lm_time_costs = None
     if manual_edit:
-        originals = snapshot_originals(params)
-        lm_result = run_lm_generation(llm_wrapper, dit_wrapper, params, config, originals)
+        originals = acestep.inference.pipeline.snapshot_originals(params)
+        lm_result = acestep.inference.pipeline.run_lm_generation(llm_wrapper, dit_wrapper, params, config, originals)
         lm_time_costs = lm_result.get("lm_time_costs")
         if not lm_result.get("success", False):
             return
-        apply_lm_results(params, lm_result, originals)
+        acestep.inference.pipeline.apply_lm_results(params, lm_result, originals)
         if log_level_upper in {"INFO", "DEBUG"}:
-            log_dit_prompt(dit_wrapper, params)
+            acestep.inference.display.log_dit_prompt(dit_wrapper, params)
         logger.info("Running DiT generation with edited prompt and cached audio codes...")
     else:
         if log_level_upper in {"INFO", "DEBUG"}:
-            log_dit_prompt(dit_wrapper, params)
+            acestep.inference.display.log_dit_prompt(dit_wrapper, params)
 
     result = generate_music(
         dit_wrapper, llm_wrapper, params, config, save_dir=sys_cfg["save_dir"],
@@ -142,7 +131,7 @@ def run_generation(sys_cfg, params, config, dit_wrapper, llm_wrapper, log_level_
     for i, audio in enumerate(result.audios):
         logger.info("  [{}] path={} seed={}", i + 1, audio["path"], audio["params"]["seed"])
 
-    log_performance(lm_time_costs if manual_edit else None, result, params.thinking)
+    acestep.inference.display.log_performance(lm_time_costs if manual_edit else None, result, params.thinking)
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def run(cfg: DictConfig) -> None:
@@ -185,7 +174,7 @@ def run(cfg: DictConfig) -> None:
 
     logger.info("wrappers initialized")
 
-    run_pre_generation_steps(
+    acestep.inference.pipeline.run_pre_generation_steps(
         params, llm_wrapper,
         sample_mode=sample_mode,
         sample_query=sample_query,
@@ -200,7 +189,7 @@ def run(cfg: DictConfig) -> None:
     )
 
     log_level_upper = str(sys_cfg["log_level"]).upper()
-    log_parameters(
+    acestep.inference.display.log_parameters(
         sys_cfg, params, config,
         compact=(log_level_upper != "DEBUG"),
         resolved_device=device,
