@@ -31,7 +31,7 @@ logger.add(sys.stderr, level="INFO",
 SKIP_LM_TASKS = {"cover", "repaint"}
 BASE_ONLY_TASKS = {"lego", "extract", "complete"}
 
-def resolve_config_path(sys_cfg, dit_wrapper, task_type) -> None:
+def resolve_config_path(sys_cfg, task_type) -> None:
     """Auto-select or validate config_path, downloading models if needed."""
     checkpoints_dir = sys_cfg["checkpoint_dir"]
 
@@ -58,27 +58,6 @@ def resolve_config_path(sys_cfg, dit_wrapper, task_type) -> None:
             "DiT model '{}' not found locally and not in registry, skipping auto-download",
             config_name,
         )
-
-def initialize_dit(sys_cfg, dit_wrapper, device) -> None:
-    use_flash_attention = sys_cfg["use_flash_attention"]
-    if use_flash_attention is None:
-        use_flash_attention = dit_wrapper.is_flash_attention_available(device)
-
-    compile_model = os.environ.get("ACESTEP_COMPILE_MODEL", "").strip().lower() in {
-        "1", "true", "yes", "y", "on",
-    }
-
-    logger.info("Initializing DiT wrapper with model: {}", sys_cfg["config_path"])
-    dit_wrapper.initialize_service(
-        project_root=sys_cfg["project_root"],
-        config_path=sys_cfg["config_path"],
-        device=device,
-        use_flash_attention=use_flash_attention,
-        compile_model=compile_model,
-        offload_to_cpu=sys_cfg["offload_to_cpu"],
-        offload_dit_to_cpu=sys_cfg["offload_dit_to_cpu"],
-        checkpoint_dir=sys_cfg["checkpoint_dir"],
-    )
 
 def requires_lm(params, sample_mode, sample_query, use_format) -> bool:
     if params.task_type in SKIP_LM_TASKS:
@@ -169,6 +148,7 @@ def run_generation(sys_cfg, params, config, dit_wrapper, llm_wrapper, log_level_
 def run(cfg: DictConfig) -> None:
     """Entry point for the ACE-Step CLI."""
     sys_cfg = OmegaConf.to_container(cfg.system, resolve=True)
+    assert isinstance(sys_cfg, dict)
 
     device = str(sys_cfg["device"])
     if device == "auto":
@@ -182,11 +162,19 @@ def run(cfg: DictConfig) -> None:
     sample_query = str(cfg.sample_query) if cfg.sample_query else ""
     use_format = bool(cfg.use_format)
 
-    dit_wrapper = AceStepDiTWrapper()
     llm_wrapper = AceStepLMWrapper()
 
-    resolve_config_path(sys_cfg, dit_wrapper, params.task_type)
-    initialize_dit(sys_cfg, dit_wrapper, device)
+    resolve_config_path(sys_cfg, params.task_type)
+    logger.info("Initializing DiT wrapper with model: {}", sys_cfg["config_path"])
+    dit_wrapper = AceStepDiTWrapper(
+        project_root=sys_cfg["project_root"],
+        config_path=sys_cfg["config_path"],
+        device=device,
+        use_flash_attention=sys_cfg["use_flash_attention"],
+        offload_to_cpu=sys_cfg["offload_to_cpu"],
+        offload_dit_to_cpu=sys_cfg["offload_dit_to_cpu"],
+        checkpoint_dir=sys_cfg["checkpoint_dir"],
+    )
 
     if requires_lm(params, sample_mode, sample_query, use_format):
         initialize_lm(sys_cfg, llm_wrapper, device)

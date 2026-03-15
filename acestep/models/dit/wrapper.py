@@ -37,8 +37,26 @@ warnings.filterwarnings("ignore")
 class AceStepDiTWrapper:
     """ACE-Step DiT model wrapper."""
 
-    def __init__(self):
-        """Initialize runtime model handles, feature flags, and generation state."""
+    def __init__(
+        self,
+        project_root: str | None = None,
+        config_path: str | None = None,
+        device: str = "auto",
+        use_flash_attention: bool | None = None,
+        offload_to_cpu: bool = False,
+        offload_dit_to_cpu: bool = False,
+        quantization: str | None = None,
+        prefer_source: str | None = None,
+        checkpoint_dir: str | None = None,
+        use_mlx_dit: bool = True,
+    ):
+        """Initialize runtime model handles, feature flags, and generation state.
+
+        When *project_root* and *config_path* are provided the wrapper is fully
+        initialised (models loaded) on construction.  When omitted, the wrapper
+        starts in an uninitialised state and ``load_models`` must be
+        called manually.
+        """
         self.model = None
         self.config = None
         self.device = "cpu"
@@ -107,6 +125,30 @@ class AceStepDiTWrapper:
         self.mlx_vae = None
         self.use_mlx_vae = False
 
+        # --- Auto-initialize when config is provided ---
+        if project_root is not None and config_path is not None:
+            if use_flash_attention is None:
+                resolved_device = self._resolve_initialize_device(device)
+                use_flash_attention = self.is_flash_attention_available(resolved_device)
+
+            compile_model = os.environ.get("ACESTEP_COMPILE_MODEL", "").strip().lower() in {
+                "1", "true", "yes", "y", "on",
+            }
+
+            self.load_models(
+                project_root=project_root,
+                config_path=config_path,
+                device=device,
+                use_flash_attention=use_flash_attention,
+                compile_model=compile_model,
+                offload_to_cpu=offload_to_cpu,
+                offload_dit_to_cpu=offload_dit_to_cpu,
+                quantization=quantization,
+                prefer_source=prefer_source,
+                checkpoint_dir=checkpoint_dir,
+                use_mlx_dit=use_mlx_dit,
+            )
+
     # =====================================================================
     # Init / lifecycle methods (inlined from dit/init.py)
     # =====================================================================
@@ -125,32 +167,32 @@ class AceStepDiTWrapper:
 
         if device == "cuda" and not gpu_config.is_cuda_available():
             if gpu_config.is_mps_available():
-                logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to MPS.")
+                logger.warning("[load_models] CUDA requested but unavailable. Falling back to MPS.")
                 return "mps"
             if gpu_config.is_xpu_available():
-                logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to XPU.")
+                logger.warning("[load_models] CUDA requested but unavailable. Falling back to XPU.")
                 return "xpu"
-            logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to CPU.")
+            logger.warning("[load_models] CUDA requested but unavailable. Falling back to CPU.")
             return "cpu"
 
         if device == "mps" and not gpu_config.is_mps_available():
             if gpu_config.is_cuda_available():
-                logger.warning("[initialize_service] MPS requested but unavailable. Falling back to CUDA.")
+                logger.warning("[load_models] MPS requested but unavailable. Falling back to CUDA.")
                 return "cuda"
             if gpu_config.is_xpu_available():
-                logger.warning("[initialize_service] MPS requested but unavailable. Falling back to XPU.")
+                logger.warning("[load_models] MPS requested but unavailable. Falling back to XPU.")
                 return "xpu"
-            logger.warning("[initialize_service] MPS requested but unavailable. Falling back to CPU.")
+            logger.warning("[load_models] MPS requested but unavailable. Falling back to CPU.")
             return "cpu"
 
         if device == "xpu" and not gpu_config.is_xpu_available():
             if gpu_config.is_cuda_available():
-                logger.warning("[initialize_service] XPU requested but unavailable. Falling back to CUDA.")
+                logger.warning("[load_models] XPU requested but unavailable. Falling back to CUDA.")
                 return "cuda"
             if gpu_config.is_mps_available():
-                logger.warning("[initialize_service] XPU requested but unavailable. Falling back to MPS.")
+                logger.warning("[load_models] XPU requested but unavailable. Falling back to MPS.")
                 return "mps"
-            logger.warning("[initialize_service] XPU requested but unavailable. Falling back to CPU.")
+            logger.warning("[load_models] XPU requested but unavailable. Falling back to CPU.")
             return "cpu"
 
         return device
@@ -170,13 +212,13 @@ class AceStepDiTWrapper:
         if device == "mps":
             if normalized_compile:
                 logger.info(
-                    "[initialize_service] MPS detected: torch.compile is not "
+                    "[load_models] MPS detected: torch.compile is not "
                     "supported - redirecting to mx.compile for MLX components."
                 )
                 mlx_compile_requested = True
                 normalized_compile = False
             if normalized_quantization is not None:
-                logger.warning("[initialize_service] Quantization (torchao) is not supported on MPS; disabling.")
+                logger.warning("[load_models] Quantization (torchao) is not supported on MPS; disabling.")
                 normalized_quantization = None
 
         return normalized_compile, normalized_quantization, mlx_compile_requested
@@ -192,7 +234,7 @@ class AceStepDiTWrapper:
             return 0
 
         model.__class__.__len__ = _len_impl
-        logger.debug(f"[initialize_service] Injected __len__ into {method_name} class for torch.compile")
+        logger.debug(f"[load_models] Injected __len__ into {method_name} class for torch.compile")
 
     def _validate_quantization_setup(self, *, quantization: str | None, compile_model: bool) -> None:
         """Validate quantization prerequisites before model loading."""
@@ -258,7 +300,7 @@ class AceStepDiTWrapper:
         mlx_dit_status: str,
         mlx_vae_status: str,
     ) -> str:
-        """Format initialize_service status output for UI/API consumers."""
+        """Format load_models status output for UI/API consumers."""
         status_msg = f"[OK] Model initialized successfully on {device}\n"
         status_msg += f"Main model: {model_path}\n"
         status_msg += f"VAE: {vae_path}\n"
@@ -345,23 +387,23 @@ class AceStepDiTWrapper:
     ) -> tuple[str, bool] | None:
         """Ensure required checkpoint assets exist locally, downloading when missing."""
         if not check_main_model_exists(checkpoint_path):
-            logger.info("[initialize_service] Main model not found, starting auto-download...")
+            logger.info("[load_models] Main model not found, starting auto-download...")
             success, msg = ensure_main_model(checkpoint_path, prefer_source=prefer_source)
             if not success:
                 return f"ERROR: Failed to download main model: {msg}", False
-            logger.info(f"[initialize_service] {msg}")
+            logger.info(f"[load_models] {msg}")
 
         if config_path == "":
             logger.warning(
-                "[initialize_service] Empty config_path; pass None to use the default model."
+                "[load_models] Empty config_path; pass None to use the default model."
             )
 
         if not check_model_exists(config_path, checkpoint_path):
-            logger.info(f"[initialize_service] DiT model '{config_path}' not found, starting auto-download...")
+            logger.info(f"[load_models] DiT model '{config_path}' not found, starting auto-download...")
             success, msg = ensure_dit_model(config_path, checkpoint_path, prefer_source=prefer_source)
             if not success:
                 return f"ERROR: Failed to download DiT model '{config_path}': {msg}", False
-            logger.info(f"[initialize_service] {msg}")
+            logger.info(f"[load_models] {msg}")
 
         return None
 
@@ -373,11 +415,11 @@ class AceStepDiTWrapper:
         mismatched = _check_code_mismatch(config_path, checkpoint_path)
         if mismatched:
             logger.warning(
-                f"[initialize_service] Model code mismatch detected for '{config_path}': "
+                f"[load_models] Model code mismatch detected for '{config_path}': "
                 f"{mismatched}. Auto-syncing from acestep/models/..."
             )
             _sync_model_code_files(config_path, checkpoint_path)
-            logger.info("[initialize_service] Model code files synced successfully.")
+            logger.info("[load_models] Model code files synced successfully.")
 
     def _load_main_model_from_checkpoint(
         self,
@@ -406,7 +448,7 @@ class AceStepDiTWrapper:
         else:
             if use_flash_attention:
                 logger.warning(
-                    f"[initialize_service] Flash attention requested but unavailable for device={device}. "
+                    f"[load_models] Flash attention requested but unavailable for device={device}. "
                     "Falling back to SDPA."
                 )
             attn_implementation = "sdpa"
@@ -421,7 +463,7 @@ class AceStepDiTWrapper:
         self.model = None
         for candidate in attn_candidates:
             try:
-                logger.info(f"[initialize_service] Attempting to load model with attention implementation: {candidate}")
+                logger.info(f"[load_models] Attempting to load model with attention implementation: {candidate}")
                 self.model = AutoModel.from_pretrained(
                     model_checkpoint_path,
                     trust_remote_code=True,
@@ -432,7 +474,7 @@ class AceStepDiTWrapper:
                 break
             except Exception as exc:
                 last_attn_error = exc
-                logger.warning(f"[initialize_service] Failed to load model with {candidate}: {exc}")
+                logger.warning(f"[load_models] Failed to load model with {candidate}: {exc}")
 
         if self.model is None:
             raise RuntimeError(
@@ -445,7 +487,7 @@ class AceStepDiTWrapper:
         if not self.offload_to_cpu:
             self.model = self.model.to(device).to(self.dtype)
         elif not self.offload_dit_to_cpu:
-            logger.info(f"[initialize_service] Keeping main model on {device} (persistent)")
+            logger.info(f"[load_models] Keeping main model on {device} (persistent)")
             self.model = self.model.to(device).to(self.dtype)
         else:
             self.model = self.model.to("cpu").to(self.dtype)
@@ -480,7 +522,7 @@ class AceStepDiTWrapper:
                     return True
 
                 quantize_(self.model, quant_config, filter_fn=_dit_filter_fn)
-                logger.info(f"[initialize_service] DiT quantized with: {quantization}")
+                logger.info(f"[load_models] DiT quantized with: {quantization}")
 
         silence_latent_path = os.path.join(model_checkpoint_path, "silence_latent.pt")
         if not os.path.exists(silence_latent_path):
@@ -529,7 +571,7 @@ class AceStepDiTWrapper:
         self.text_encoder.eval()
         return text_encoder_path
 
-    def initialize_service(
+    def load_models(
         self,
         project_root: str,
         config_path: str,
@@ -552,7 +594,7 @@ class AceStepDiTWrapper:
             if config_path is None:
                 config_path = "acestep-v15-turbo"
                 logger.warning(
-                    "[initialize_service] config_path not set; defaulting to 'acestep-v15-turbo'."
+                    "[load_models] config_path not set; defaulting to 'acestep-v15-turbo'."
                 )
 
             resolved_device = self._resolve_initialize_device(device)

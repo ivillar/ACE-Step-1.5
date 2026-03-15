@@ -900,7 +900,7 @@ def switch_to_training_preset(self) -> tuple[str, bool]:
     params = dict(self.last_init_params)
     params["quantization"] = None
 
-    status, ok = self.initialize_service(
+    status, ok = self.load_models(
         project_root=params["project_root"],
         config_path=params["config_path"],
         device=params["device"],
