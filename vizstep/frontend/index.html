@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VizStep — ACE-Step Pipeline Visualization</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #fafafa; font-family: 'SF Mono', 'Fira Code', monospace; }
+    #canvas-container { width: 100%; height: 100%; position: relative; }
+    canvas { display: block; }
+
+    /* Overlay UI */
+    #status-bar {
+      position: absolute; top: 16px; left: 16px;
+      color: #1a1a1a; font-size: 12px; letter-spacing: 0.5px;
+      opacity: 0.7; user-select: none; pointer-events: none;
+    }
+    #status-bar .stage { color: #e63946; font-weight: 600; }
+    #controls {
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 8px; align-items: center;
+    }
+    #controls button {
+      background: #1a1a1a; color: #fafafa; border: none;
+      padding: 8px 20px; font-size: 12px; cursor: pointer;
+      font-family: inherit; letter-spacing: 0.5px;
+      transition: background 0.15s;
+    }
+    #controls button:hover { background: #e63946; }
+    #controls button:disabled { opacity: 0.3; cursor: default; }
+
+    #audio-player {
+      position: absolute; bottom: 16px; right: 16px;
+    }
+    #audio-player audio { height: 32px; }
+
+    /* Detail overlay (click-to-inspect) */
+    #detail-overlay {
+      position: absolute; top: 16px; right: 16px;
+      background: rgba(26, 26, 26, 0.9); color: #fafafa;
+      padding: 12px 16px; font-size: 11px; line-height: 1.6;
+      max-width: 280px; display: none; pointer-events: none;
+    }
+    #detail-overlay .label { color: #e63946; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="status-bar">
+    VIZSTEP <span class="stage" id="status-stage">IDLE</span>
+  </div>
+  <div id="controls">
+    <button id="btn-generate">GENERATE</button>
+  </div>
+  <div id="audio-player"></div>
+  <div id="detail-overlay"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

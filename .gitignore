@@ -246,5 +246,9 @@ acestep/third_parts/vllm/
 test_lora_scale_fix.py
 lokr_output/
 
+# Frontend (TypeScript/Node)
+node_modules/
+dist/
+
 # macOS
 .DS_Store

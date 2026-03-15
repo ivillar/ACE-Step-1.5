@@ -53,6 +53,9 @@ sidestep = [
     "rich>=13.0.0",
     "textual>=0.47.0",
 ]
+viz = [
+    "websockets>=14.0",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -89,13 +92,14 @@ torchaudio = [
 
 [project.scripts]
 acestep = "acestep.acestep_v15_pipeline:main"
+vizstep = "vizstep.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["acestep"]
+packages = ["acestep", "vizstep"]
 
 [tool.ruff]
 target-version = "py311"
