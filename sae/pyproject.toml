@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ace-step-sae"
+version = "0.1.0"
+description = "Sparse Autoencoder interpretability and steering for ACE-Step music generation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "torch>=2.1",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+clap = [
+    "transformers>=4.36",
+    "torchaudio>=2.1",
+]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["ace_step_sae*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
